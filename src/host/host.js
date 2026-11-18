@@ -1,6 +1,7 @@
 const $ = id => document.getElementById(id);
 const api = window.sidepad;
-const { createStreamSettings, applySenderSettings } = window.SidepadStreaming;
+const { createStreamSettings, applySenderSettings, applyBitrateLimit } = window.SidepadStreaming;
+const { createLatencyController } = window.SidepadLatency;
 const diagnostics = window.SidepadDiagnostics;
 const codecTools = window.SidepadCodecs;
 let config, stream, peer, peerId, negotiation, candidates = [], signalQueue = Promise.resolve();
@@ -8,6 +9,7 @@ let starting = false, offering = false, offerPending = false, statsTimer, previo
 let activeSettings, senderTuning;
 let senderDiagnostics = null, senderUpdatedAt = 0, receiverDiagnostics = null, resourceStats = null;
 let codecNegotiation = null;
+let latencyController = null, latencyBusy = false;
 
 function diagnosticReport() {
   const now = performance.now();
@@ -17,6 +19,7 @@ function diagnosticReport() {
     sender: senderFresh ? senderDiagnostics : null,
     receiver: diagnostics.freshReceiver(receiverDiagnostics, now), resources: senderFresh ? resourceStats : null,
     codecNegotiation,
+    latencyControl: latencyController?.snapshot() || null,
     notes: ['Recent interval averages; sendQueueMs is per packet, encode/buffer/decode are per frame.',
       'receiveProcessMs includes buffer/reassembly/decode. Do not sum overlapping metrics.',
       'Capture-to-display latency and GPU utilization are not measured. Encoder efficiency is a browser hint, not proof of NVENC.',
@@ -46,6 +49,15 @@ function renderDiagnostics() {
   const reasons = { none: '제한 보고 없음', cpu: 'CPU', bandwidth: '대역폭', other: '기타' };
   $('diag-limits').textContent = `브라우저 제한 사유: ${reasons[sender?.limitation] || '확인 불가'} · 영상 인코딩 가속 지원: ${resources?.videoEncodeFeature || '확인 불가'}`;
   $('diag-hint').textContent = diagnostics.diagnosis(sender, receiver, activeSettings?.fps || 60);
+  const control = latencyController?.snapshot();
+  const reasonsText = { 'warming-up': '측정 중', waiting: '새 수신 통계 대기', stable: '안정',
+    'observing-congestion': '혼잡 지속 여부 확인', congestion: '혼잡으로 전송량 조절', recovering: '전송량 복원',
+    'receiver-buffer': '수신 대기 관측 · 송신 혼잡 근거 없음', 'processing-limited': '인코딩·디코딩 부하 확인',
+    'quality-floor': '화질 보호 하한 도달', failed: '자동 조절 적용 실패', disabled: '자동 조절 꺼짐' };
+  $('diag-adaptation').textContent = control
+    ? `전송량 상한 ${(control.currentBitrate / 1000000).toFixed(1)} / ${(control.maximumBitrate / 1000000).toFixed(1)} Mbps · ${reasonsText[control.reason]}` : '';
+  $('diag-jitter').textContent = receiver
+    ? `패킷 도착 변동 ${ms(receiver.jitterMs)} · 프레임 조립 ${ms(receiver.assemblyMs)} · 브라우저 최소 버퍼 ${ms(receiver.minimumBufferMs)}` : '';
   if (encoderState === 'software' && sender.codec === 'video/H264' && sender.codecParameters &&
       codecTools.h264Profile({ sdpFmtpLine: sender.codecParameters }) === 'constrained-baseline') {
     $('diag-hint').textContent = '협상된 H.264 Constrained Baseline은 Windows의 NVIDIA 인코더 경로에서 제외됩니다. 하드웨어 우선 모드는 공통으로 지원하는 다른 H.264 규격 또는 HEVC를 먼저 선택합니다.';
@@ -61,12 +73,13 @@ function syncControls() {
   $('quality').disabled = busy;
   $('fps').disabled = busy;
   $('encoder-preference').disabled = busy;
+  $('adaptive-bitrate').disabled = busy || !$('low-latency').checked;
   $('start').disabled = busy || !$('display').value;
 }
 function changeMode() {
   const low = $('low-latency').checked;
   $('mode-hint').textContent = low
-    ? '선택한 해상도와 프레임을 사용하며, 수신 버퍼 대기를 줄이고 PC 미리보기를 생략합니다. 끊기면 30 fps로 비교해 보세요.'
+    ? '선택한 해상도와 목표 프레임을 사용하며, 수신 버퍼 최소화를 요청하고 PC 미리보기를 생략합니다.'
     : '표준 모드 · PC 미리보기와 자동 수신 버퍼를 사용합니다. 선택한 해상도와 프레임은 그대로 유지됩니다.';
   syncControls();
 }
@@ -98,12 +111,30 @@ function closePeer() {
   receiverDiagnostics = null;
   resourceStats = null;
   codecNegotiation = null;
+  latencyController = null;
+  latencyBusy = false;
   renderDiagnostics();
-  if (config?.hardwarePreview) api.recordDiagnostics(diagnosticReport()).catch(() => {});
+  if (config?.hardwarePreview || config?.bufferPreview) api.recordDiagnostics(diagnosticReport()).catch(() => {});
   $('framerate').textContent = '— fps';
   $('bitrate').textContent = '— Mbps';
   $('roundtrip').textContent = '왕복 — ms';
   senderTuning = null;
+}
+
+async function adjustLatency(pc) {
+  const controller = latencyController;
+  if (!controller || latencyBusy || pc !== peer || performance.now() - senderUpdatedAt > 6500) return;
+  const action = controller.observe(senderDiagnostics, receiverDiagnostics, performance.now());
+  if (!action) return;
+  latencyBusy = true;
+  try {
+    const sender = pc.getSenders().find(item => item.track?.kind === 'video');
+    const applied = await applyBitrateLimit(sender, action.bitrate);
+    if (pc !== peer || controller !== latencyController) return;
+    controller.commit(action, applied, performance.now());
+  } finally {
+    if (pc === peer && controller === latencyController) { latencyBusy = false; renderDiagnostics(); }
+  }
 }
 
 async function offer() {
@@ -138,6 +169,9 @@ async function offer() {
     const tuning = await applySenderSettings(sender, settings);
     if (peer !== pc || peerId !== target) return;
     senderTuning = tuning;
+    const capture = stream.getVideoTracks()[0].getSettings();
+    latencyController = createLatencyController({ ...settings,
+      width: capture.width || settings.width, height: capture.height || settings.height }, performance.now());
     if (!tuning.applied) message('브라우저가 전송률 설정을 적용하지 못했습니다. 선택한 캡처 해상도와 프레임으로 전송합니다.');
     await signal({ type: 'offer', sdp: pc.localDescription.sdp, lowLatency: settings.lowLatency, encoderPreference: settings.encoderPreference });
     if (peer !== pc) return;
@@ -161,7 +195,9 @@ async function offer() {
           previousStats = stat;
         }
         renderDiagnostics();
-        if (config?.hardwarePreview) await api.recordDiagnostics(diagnosticReport());
+        await adjustLatency(pc);
+        if (pc !== peer) return;
+        if (config?.hardwarePreview || config?.bufferPreview) await api.recordDiagnostics(diagnosticReport());
       } catch { /* Connection may be closed during polling. */ }
       finally { statsBusy = false; }
     }, 2000);
@@ -176,7 +212,7 @@ async function offer() {
 async function begin() {
   if (starting || stream) return;
   starting = true;
-  activeSettings = createStreamSettings({ lowLatency: $('low-latency').checked, quality: $('quality').value, fps: $('fps').value, encoderPreference: $('encoder-preference').value });
+  activeSettings = createStreamSettings({ lowLatency: $('low-latency').checked, quality: $('quality').value, fps: $('fps').value, encoderPreference: $('encoder-preference').value, adaptiveBitrate: $('adaptive-bitrate').checked });
   syncControls();
   message('');
   try {
@@ -291,9 +327,10 @@ $('network').onchange = showNetwork;
 api.config().then(result => {
   config = result;
   if (result.preview) {
-    document.title = `Sidepad · ${result.hardwarePreview ? 'NVIDIA' : '저지연'} 미리보기 (${result.port})`;
+    document.title = `Sidepad · ${result.bufferPreview ? '수신 버퍼 개선' : result.hardwarePreview ? 'NVIDIA' : '저지연'} 미리보기 (${result.port})`;
     document.querySelector('.version').textContent = `PREVIEW / ${result.port}`;
   }
+  if (result.bufferPreview) $('quality').value = 'sharp';
   peerId = result.peerId;
   showDisplays(result.displays);
   for (const link of result.links) $('network').add(new Option(`${link.ip}:${result.port}`, link.ip));

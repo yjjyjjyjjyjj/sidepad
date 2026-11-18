@@ -32,6 +32,7 @@
       sendQueueMs: average(current, previous, 'totalPacketSendDelay', 'packetsSent'),
       encodedFps: perSecond(current, previous, 'framesEncoded'),
       bitrateMbps: bytesPerSecond === null ? null : bytesPerSecond * 8 / 1000000,
+      availableOutgoingMbps: number(pair?.availableOutgoingBitrate) === null ? null : pair.availableOutgoingBitrate / 1000000,
       rttMs: number(pair?.currentRoundTripTime) === null ? null : pair.currentRoundTripTime * 1000,
       width: number(current.frameWidth), height: number(current.frameHeight),
       codec: text(report.get(current.codecId)?.mimeType), codecParameters: text(report.get(current.codecId)?.sdpFmtpLine),
@@ -48,21 +49,28 @@
       receiveProcessMs: average(current, previous, 'totalProcessingDelay', 'framesDecoded'),
       targetBufferMs: average(current, previous, 'jitterBufferTargetDelay', 'jitterBufferEmittedCount'),
       minimumBufferMs: average(current, previous, 'jitterBufferMinimumDelay', 'jitterBufferEmittedCount'),
+      jitterMs: number(current.jitter) === null ? null : current.jitter * 1000,
+      assemblyMs: average(current, previous, 'totalAssemblyTime', 'framesAssembledFromMultiplePackets'),
+      receivedPackets: delta(current, previous, 'packetsReceived'),
       decodedFps: perSecond(current, previous, 'framesDecoded'),
       droppedFrames: delta(current, previous, 'framesDropped'),
       lostPackets: delta(current, previous, 'packetsLost'),
       freezes: delta(current, previous, 'freezeCount'),
       width: number(current.frameWidth), height: number(current.frameHeight),
       decoder: text(current.decoderImplementation), powerEfficient: boolean(current.powerEfficientDecoder),
-      bufferControl: !lowLatency ? 'automatic' : tuning?.applied ? 'minimum' : tuning?.supported ? 'failed' : 'unsupported'
+      bufferControl: !lowLatency ? 'automatic' : tuning?.applied ? 'minimum' : tuning?.supported ? 'failed' : 'unsupported',
+      bufferApi: tuning?.api || null
     };
   }
   const numericReceiverFields = ['bufferMs', 'decodeMs', 'receiveProcessMs', 'targetBufferMs', 'minimumBufferMs', 'decodedFps', 'droppedFrames', 'lostPackets', 'freezes', 'width', 'height'];
+  const optionalReceiverFields = ['jitterMs', 'assemblyMs', 'receivedPackets'];
   function validReceiverMetrics(value) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-    const keys = [...numericReceiverFields, 'decoder', 'powerEfficient', 'bufferControl'];
-    if (Object.keys(value).length !== keys.length || Object.keys(value).some(key => !keys.includes(key))) return false;
+    const keys = [...numericReceiverFields, ...optionalReceiverFields, 'decoder', 'powerEfficient', 'bufferControl', 'bufferApi'];
+    if (Object.keys(value).some(key => !keys.includes(key))) return false;
     return numericReceiverFields.every(key => value[key] === null || (number(value[key]) !== null && value[key] <= 1000000000)) &&
+      optionalReceiverFields.every(key => value[key] === undefined || value[key] === null || (number(value[key]) !== null && value[key] <= 1000000000)) &&
+      (value.bufferApi === undefined || value.bufferApi === null || ['jitterBufferTarget', 'playoutDelayHint'].includes(value.bufferApi)) &&
       (value.decoder === null || (typeof value.decoder === 'string' && value.decoder.length <= 160)) &&
       (value.powerEfficient === null || typeof value.powerEfficient === 'boolean') &&
       ['automatic', 'minimum', 'failed', 'unsupported'].includes(value.bufferControl);

@@ -45,6 +45,8 @@ test('receiver telemetry validates fields and ignores old sessions, old sequence
   assert.equal(validReceiverMetrics({ ...metrics, decodeMs: Infinity }), false);
   assert.equal(validReceiverMetrics({ ...metrics, width: '1920' }), false);
   assert.equal(validReceiverMetrics({ ...metrics, token: 'private' }), false);
+  assert.equal(validReceiverMetrics({ ...metrics, jitterMs: -1 }), false);
+  assert.equal(validReceiverMetrics({ ...metrics, bufferApi: 'pretend' }), false);
   assert.equal(validReceiverMetrics({ ...metrics, decoder: 'x'.repeat(161) }), false);
   const signal = { sessionId: 'current', sequence: 1, metrics };
   const sample = acceptReceiver(null, signal, 'current', 100);
@@ -53,4 +55,18 @@ test('receiver telemetry validates fields and ignores old sessions, old sequence
   assert.equal(acceptReceiver(sample, signal, 'current', 200), sample);
   assert.equal(acceptReceiver(sample, { ...signal, sequence: 2, sessionId: 'old' }, 'current', 200), sample);
   assert.equal(acceptReceiver(sample, { ...signal, sequence: 2 }, 'current', 200).receivedAt, 200);
+});
+
+test('network jitter, packet counts and frame assembly use the documented units and denominator', () => {
+  const previous = { id: 'video', timestamp: 1000, packetsReceived: 100, totalAssemblyTime: 1, framesAssembledFromMultiplePackets: 20 };
+  const current = { ...previous, timestamp: 3000, packetsReceived: 1100, totalAssemblyTime: 1.5, framesAssembledFromMultiplePackets: 120, jitter: 0.012 };
+  const metrics = receiverMetrics(current, previous, { api: 'playoutDelayHint', supported: true, applied: true }, true);
+  assert.equal(metrics.jitterMs, 12);
+  assert.equal(metrics.assemblyMs, 5);
+  assert.equal(metrics.receivedPackets, 1000);
+  assert.equal(metrics.bufferApi, 'playoutDelayHint');
+  assert.equal(validReceiverMetrics(metrics), true);
+  const old = { ...metrics };
+  for (const key of ['jitterMs', 'assemblyMs', 'receivedPackets', 'bufferApi']) delete old[key];
+  assert.equal(validReceiverMetrics(old), true, 'accept diagnostics from a previously loaded viewer');
 });

@@ -19,6 +19,7 @@
         <div class="notice" id="setup" hidden><strong>가상 모니터를 먼저 만들어 주세요.</strong><p>드라이버 설치 후 Windows에서 ‘디스플레이 확장’을 선택하면 목록에 표시됩니다.</p><div class="button-row"><button id="install" class="small">드라이버 설치</button><button id="driver-page" class="text-button">공식 다운로드 ↗</button></div><p class="fine">Virtual Display Driver를 설치합니다. Windows 관리자 확인 창이 표시될 수 있습니다.</p></div>
         <div class="button-row settings"><button id="settings" class="text-button">Windows에서 화면 배치하기 ↗</button><button id="add-virtual" class="text-button">새 가상 모니터 추가 ＋</button></div>
         <div class="mode-card"><label class="mode-toggle" for="low-latency"><input id="low-latency" type="checkbox" checked aria-describedby="mode-hint"><span>저지연 모드</span><span class="mode-badge">선명도 우선</span></label><p id="mode-hint">선택한 해상도와 프레임을 유지하며, 수신 버퍼 대기를 줄입니다.</p></div>
+        <div class="mode-card"><label class="mode-toggle" for="adaptive-bitrate"><input id="adaptive-bitrate" type="checkbox" checked aria-describedby="adaptive-hint"><span>혼잡 시 전송량 조절</span></label><p id="adaptive-hint">수신 대기와 송신 혼잡이 함께 지속되면 전송량을 낮추고, 안정되면 복원합니다. 해상도와 목표 프레임은 유지하며 압축 화질은 달라질 수 있습니다.</p></div>
         <div class="options"><div><label for="quality">화질</label><select id="quality"><option value="balanced">균형 · 최대 1920 × 1200</option><option value="sharp">선명하게 · 최대 2560 × 1600</option><option value="light">가볍게 · 최대 1280 × 800</option></select></div><div><label for="fps">목표 프레임</label><select id="fps"><option value="30">30 fps</option><option value="60" selected>60 fps</option></select></div></div>
         <label for="encoder-preference">영상 인코딩</label><select id="encoder-preference"><option value="hardware">하드웨어 우선 · 기기와 공통 규격 자동 선택</option><option value="compatibility">호환성 우선 · H.264</option></select>
         <p id="encoder-status" class="encoder-status">연결 후 실제 인코더를 확인합니다.</p>
@@ -34,6 +35,7 @@
             <div><span>이 Sidepad의 CPU / 전체 CPU</span><strong id="diag-cpu">—</strong></div>
           </div>
           <p id="diag-encoder">인코더 확인 대기</p><p id="diag-decoder">기기 진단 대기</p><p id="diag-limits"></p>
+          <p id="diag-adaptation"></p><p id="diag-jitter"></p>
           <p id="diag-hint">화면 전송 후 최근 구간을 측정합니다.</p>
           <p class="diagnostic-note">최근 약 2초의 평균입니다. 수신→디코딩에는 버퍼가 포함되며, 단위가 다른 값을 합산해 전체 지연으로 해석할 수 없습니다. 캡처 대기·최종 화면 표시·GPU 사용률은 측정하지 않습니다.</p>
           <button id="copy-diagnostics" class="text-button">진단 결과 복사</button>
@@ -54,6 +56,7 @@
   <script src="../shared/streaming.js"></script>
   <script src="../shared/diagnostics.js"></script>
   <script src="../shared/codecs.js"></script>
+  <script src="../shared/latency.js"></script>
   <script src="host.js"></script>
 </body>
 </html>

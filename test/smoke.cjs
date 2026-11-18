@@ -19,6 +19,7 @@ async function verifyMode(win, viewer, lowLatency) {
   assert.equal(sender.parameters.degradationPreference, 'maintain-resolution');
   assert.equal(sender.previewPlaying, !lowLatency);
   assert.equal(sender.tuning.applied, true);
+  assert.equal(sender.settings.adaptiveBitrate, lowLatency);
   const receiver = await viewer.webContents.executeJavaScript(`({
     tuning: receiverTuning,
     target: peer.getReceivers().find(r => r.track.kind === 'video').jitterBufferTarget,
@@ -123,6 +124,22 @@ async function run({ app, win, server, displays }) {
       assert.equal(measurement.sender.codec, 'video/H265');
       assert.match(measurement.sender.encoder, /HEVC/);
     }
+    const bitrateFeedback = await win.webContents.executeJavaScript(`(async () => {
+      const sender = peer.getSenders().find(item => item.track?.kind === 'video');
+      const before = sender.getParameters();
+      const temporaryLimit = Math.round(activeSettings.bitrate * 0.8);
+      const applied = await applyBitrateLimit(sender, temporaryLimit);
+      const after = sender.getParameters();
+      const restored = await applyBitrateLimit(sender, activeSettings.bitrate);
+      return { applied, restored, before, after, temporaryLimit };
+    })()`);
+    assert.equal(bitrateFeedback.applied, true);
+    assert.equal(bitrateFeedback.restored, true);
+    assert.equal(bitrateFeedback.after.encodings[0].maxBitrate, bitrateFeedback.temporaryLimit);
+    assert.equal(bitrateFeedback.after.encodings[0].maxFramerate, bitrateFeedback.before.encodings[0].maxFramerate);
+    assert.equal(bitrateFeedback.after.encodings[0].scaleResolutionDownBy, bitrateFeedback.before.encodings[0].scaleResolutionDownBy);
+    assert.deepEqual(bitrateFeedback.after.codecs, bitrateFeedback.before.codecs);
+    assert.equal(bitrateFeedback.after.degradationPreference, 'maintain-resolution');
     writeFileSync(path.join(artifacts, 'diagnostics.json'), JSON.stringify(measurement, null, 2));
     await win.webContents.executeJavaScript("document.getElementById('diagnostics').open = true");
     win.setContentSize(1150, 1500);
@@ -160,7 +177,7 @@ async function run({ app, win, server, displays }) {
     await until(viewer, "document.getElementById('screen').videoWidth > 0 && document.getElementById('screen').currentTime > 0.25");
     const standardMode = await verifyMode(win, viewer, false);
     await win.webContents.executeJavaScript("document.getElementById('stop').click()", true);
-    console.log(JSON.stringify({ ok: true, capture: { label: chosen.label, x: chosen.x, primary: chosen.primary, width: video.width, height: video.height }, lowMode, standardMode, measurement, checks: ['native desktop capture', 'WebRTC video frames', 'low-latency sender and receiver settings', 'receiver diagnostics delivery and reset', 'viewer retry', 'stop', 'restart', 'viewer reload', 'restore standard mode'], issues }, null, 2));
+    console.log(JSON.stringify({ ok: true, capture: { label: chosen.label, x: chosen.x, primary: chosen.primary, width: video.width, height: video.height }, lowMode, standardMode, measurement, checks: ['native desktop capture', 'WebRTC video frames', 'low-latency sender and receiver settings', 'live bitrate feedback preserves codec/resolution/fps', 'receiver diagnostics delivery and reset', 'viewer retry', 'stop', 'restart', 'viewer reload', 'restore standard mode'], issues }, null, 2));
     viewer.destroy();
     await server.close();
     app.exit(0);

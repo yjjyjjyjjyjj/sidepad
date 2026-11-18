@@ -1,13 +1,13 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createStreamSettings, applySenderSettings, applyReceiverLatency, intervalAverageMs, receiverMetrics } = require('../src/shared/streaming.js');
+const { createStreamSettings, applySenderSettings, applyReceiverLatency, applyBitrateLimit, intervalAverageMs, receiverMetrics } = require('../src/shared/streaming.js');
 
 test('low latency preserves every selected resolution and frame rate', () => {
   for (const quality of ['light', 'balanced', 'sharp']) {
     for (const fps of [30, 60]) {
       const standard = createStreamSettings({ quality, fps });
       const low = createStreamSettings({ lowLatency: true, quality, fps });
-      assert.deepEqual(low, { ...standard, lowLatency: true });
+      assert.deepEqual(low, { ...standard, lowLatency: true, adaptiveBitrate: true });
       assert.equal(low.fps, fps);
       assert.equal(low.contentHint, 'detail');
       assert.equal(low.degradationPreference, 'maintain-resolution');
@@ -38,10 +38,31 @@ test('sender retries unsupported degradation preference with fresh parameters', 
 
 test('unsupported receiver tuning does not create a fake successful property', () => {
   const receiver = {};
-  assert.deepEqual(applyReceiverLatency(receiver, true), { supported: false, applied: false });
+  assert.deepEqual(applyReceiverLatency(receiver, true), { supported: false, applied: false, api: null });
   assert.equal('jitterBufferTarget' in receiver, false);
   const throwing = { get jitterBufferTarget() { return null; }, set jitterBufferTarget(value) { throw new Error('Unavailable'); } };
-  assert.deepEqual(applyReceiverLatency(throwing, true), { supported: true, applied: false });
+  assert.deepEqual(applyReceiverLatency(throwing, true), { supported: true, applied: false, api: null });
+});
+
+test('legacy receiver API is used only when present and restored in standard mode', () => {
+  const receiver = { playoutDelayHint: null };
+  assert.equal(applyReceiverLatency(receiver, true).api, 'playoutDelayHint');
+  assert.equal(receiver.playoutDelayHint, 0);
+  assert.equal('jitterBufferTarget' in receiver, false);
+  applyReceiverLatency(receiver, false);
+  assert.equal(receiver.playoutDelayHint, null);
+});
+
+test('bitrate feedback keeps codec, resolution, fps and transaction fields intact', async () => {
+  let params = { transactionId: '1', degradationPreference: 'maintain-resolution', codecs: [{ mimeType: 'video/H265' }],
+    encodings: [{ maxBitrate: 24000000, maxFramerate: 60, scaleResolutionDownBy: 1 }] };
+  const before = structuredClone(params);
+  const sender = { getParameters: () => structuredClone(params), setParameters: async next => { params = next; } };
+  assert.equal(await applyBitrateLimit(sender, 19200000), true);
+  assert.deepEqual(params, { ...before, encodings: [{ ...before.encodings[0], maxBitrate: 19200000 }] });
+  assert.equal(await applyBitrateLimit(sender, -1), false);
+  const ignored = { ...sender, setParameters: async () => {} };
+  assert.equal(await applyBitrateLimit(ignored, 10000000), false);
 });
 
 test('returning to standard mode restores automatic receiver buffering', () => {

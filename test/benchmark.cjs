@@ -32,6 +32,7 @@ async function run(options) {
 }
 async function compare({ win, viewer, until, expectedWidth, expectedHeight }, animatedPattern) {
   const modes = [];
+  const originalAdaptive = await win.webContents.executeJavaScript("document.getElementById('adaptive-bitrate').checked");
   for (const lowLatency of [true, false]) {
     await win.webContents.executeJavaScript('stop()', true);
     await until(viewer, "document.getElementById('screen').srcObject === null");
@@ -40,6 +41,7 @@ async function compare({ win, viewer, until, expectedWidth, expectedHeight }, an
       toggle.checked = ${lowLatency}; toggle.dispatchEvent(new Event('change'));
       document.getElementById('quality').value = 'balanced';
       document.getElementById('fps').value = '60';
+      document.getElementById('adaptive-bitrate').checked = false;
       document.getElementById('start').click();
     }`, true);
     await until(viewer, "document.getElementById('screen').videoWidth > 0 && document.getElementById('screen').currentTime > 0.25");
@@ -51,6 +53,7 @@ async function compare({ win, viewer, until, expectedWidth, expectedHeight }, an
       assert.equal(sample.settings.lowLatency, lowLatency);
       assert.equal(sample.settings.fps, 60);
       assert.equal(sample.settings.bitrate, 12000000);
+      assert.equal(sample.latencyControl.enabled, false);
       assert.equal(sample.sender?.width, expectedWidth);
       assert.equal(sample.receiver?.width, expectedWidth);
       assert.equal(sample.receiver?.height, expectedHeight);
@@ -65,11 +68,12 @@ async function compare({ win, viewer, until, expectedWidth, expectedHeight }, an
   await win.webContents.executeJavaScript(`{
     const toggle = document.getElementById('low-latency');
     toggle.checked = true; toggle.dispatchEvent(new Event('change'));
+    document.getElementById('adaptive-bitrate').checked = ${originalAdaptive};
     document.getElementById('start').click();
   }`, true);
   await until(viewer, "document.getElementById('screen').videoWidth > 0 && document.getElementById('screen').currentTime > 0.25");
   return {
-    recordedAt: new Date().toISOString(), transport: 'loopback', animatedPattern, warmupSeconds: 8, samplesPerMode: 8,
+    recordedAt: new Date().toISOString(), transport: 'loopback', animatedPattern, adaptiveBitrate: false, warmupSeconds: 8, samplesPerMode: 8,
     caveat: 'Sequential measurements on the same PC, including sender, receiver and optional pattern renderer CPU. Background load may vary. Does not measure real Wi-Fi or capture-to-display latency.',
     modes
   };
