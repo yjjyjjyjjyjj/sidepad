@@ -3,11 +3,14 @@ const { networkInterfaces, cpus } = require('node:os');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { spawn } = require('node:child_process');
-const { writeFile, rename } = require('node:fs/promises');
+const { writeFile, rename, readFile, mkdir } = require('node:fs/promises');
+const { randomUUID } = require('node:crypto');
 const QRCode = require('qrcode');
 const { DisplayServer } = require('./server.cjs');
 
 const projectRoot = path.join(__dirname, '..');
+app.setName('Sidepad');
+if (process.platform === 'win32') app.setAppUserModelId('com.sidepad.desktop');
 const codecProbe = process.argv.includes('--codec-probe');
 const smoke = process.argv.includes('--smoke-test') || codecProbe;
 const hardwarePreview = process.argv.includes('--hardware-preview');
@@ -148,16 +151,31 @@ async function start() {
   });
   handle('display:settings', () => shell.openExternal('ms-settings:display'));
   handle('display:driver-page', () => shell.openExternal('https://github.com/VirtualDrivers/Virtual-Display-Driver/releases'));
-  handle('display:install-driver', () => {
+  handle('display:install-driver', async () => {
     if (driverProcess) return { started: false };
-    driverProcess = spawn('powershell.exe', ['-NoProfile', '-File', path.join(projectRoot, 'scripts', 'install-driver.ps1')], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    // Reserve before awaiting to prevent two elevated installers from racing.
+    driverProcess = true;
+    const resultDirectory = path.join(app.getPath('userData'), 'driver-setup');
+    const resultPath = path.join(resultDirectory, `${randomUUID()}.json`);
+    try { await mkdir(resultDirectory, { recursive: true }); }
+    catch (error) { driverProcess = null; throw error; }
+    driverProcess = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'RemoteSigned', '-File', path.join(projectRoot, 'scripts', 'install-driver.ps1'), '-ResultPath', resultPath], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
     let output = '';
+    let settled = false;
     driverProcess.stdout.on('data', chunk => { output = (output + chunk.toString()).slice(-10000); });
     driverProcess.stderr.on('data', chunk => { output = (output + chunk.toString()).slice(-10000); });
-    driverProcess.on('error', error => { driverProcess = null; send('display:driver-result', { ok: false, message: error.message }); });
-    driverProcess.on('close', code => {
+    driverProcess.on('error', error => { settled = true; driverProcess = null; send('display:driver-result', { ok: false, message: error.message }); });
+    driverProcess.on('close', async code => {
+      if (settled) return;
+      settled = true;
+      let result;
+      try { result = JSON.parse((await readFile(resultPath, 'utf8')).replace(/^\uFEFF/, '')); } catch { /* Failure details remain in process output. */ }
       driverProcess = null;
-      send('display:driver-result', { ok: code === 0, message: code === 0 ? '설치 명령이 완료되었습니다. Windows 디스플레이 설정에서 확장을 선택해 주세요.' : `설치가 완료되지 않았습니다. 공식 다운로드에서 설치할 수 있습니다.\n${output}` });
+      const ok = code === 0 && result?.ok === true;
+      const message = ok ? '가상 화면을 1920 × 1080 · 60 Hz 확장 모니터로 설정했습니다. 목록에서 선택해 화면 전송을 시작하세요.'
+        : result?.rebootRequired ? '드라이버 설치 후 Windows 재시작이 필요합니다. 재시작한 뒤 ‘드라이버 설치 및 설정’을 다시 눌러 화면 설정을 마쳐 주세요.'
+        : `설정을 완료하지 못했습니다. Windows 화면 설정이나 공식 다운로드에서 상태를 확인해 주세요.\n${result?.error || output}`;
+      send('display:driver-result', { ok, message });
     });
     return { started: true };
   });
@@ -176,7 +194,7 @@ async function start() {
   session.defaultSession.setPermissionRequestHandler((contents, permission, callback) => callback(allowedPermission(contents, permission)));
   win = new BrowserWindow({
     width: 1150, height: 880, minWidth: 860, minHeight: 700,
-    title: 'Sidepad · Wi-Fi 확장 모니터', backgroundColor: '#f4f5f1', show: !smoke,
+    title: 'Sidepad', icon: path.join(__dirname, 'assets', 'sidepad.ico'), backgroundColor: '#f4f5f1', show: !smoke,
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false }
   });
   win.removeMenu();

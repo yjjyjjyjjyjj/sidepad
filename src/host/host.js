@@ -293,7 +293,7 @@ api.onRemoved(async () => { await stop(); message('선택한 디스플레이의 
 api.onError(message);
 api.onDriverResult(async result => {
   $('install').disabled = false;
-  $('install').textContent = '드라이버 설치';
+  $('install').textContent = '드라이버 설치 및 설정';
   message(result.message);
   showDisplays(await api.list());
 });
@@ -308,7 +308,7 @@ $('add-virtual').onclick = () => { $('setup').hidden = !$('setup').hidden; };
 $('install').onclick = async () => {
   $('install').disabled = true;
   $('install').textContent = '설치 진행 중…';
-  try { await api.installDriver(); } catch (error) { $('install').disabled = false; $('install').textContent = '드라이버 설치'; message(error.message); }
+  try { await api.installDriver(); } catch (error) { $('install').disabled = false; $('install').textContent = '드라이버 설치 및 설정'; message(error.message); }
 };
 $('disconnect').onclick = () => api.disconnect();
 $('copy').onclick = async () => { await api.copy($('network').value); message('연결 링크를 복사했습니다. 연결할 기기의 브라우저에서 열어 주세요.'); };
@@ -326,10 +326,7 @@ function showNetwork() {
 $('network').onchange = showNetwork;
 api.config().then(result => {
   config = result;
-  if (result.preview) {
-    document.title = `Sidepad · ${result.bufferPreview ? '수신 버퍼 개선' : result.hardwarePreview ? 'NVIDIA' : '저지연'} 미리보기 (${result.port})`;
-    document.querySelector('.version').textContent = `PREVIEW / ${result.port}`;
-  }
+  document.title = 'Sidepad';
   if (result.bufferPreview) $('quality').value = 'sharp';
   peerId = result.peerId;
   showDisplays(result.displays);

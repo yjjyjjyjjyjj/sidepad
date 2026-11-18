@@ -1,7 +1,10 @@
+param([string]$ResultPath = (Join-Path (Split-Path $PSScriptRoot -Parent) '.runtime\driver-setup-result.json'))
 $ErrorActionPreference = 'Stop'
-# Run only when the user clicks Install driver in Sidepad or invokes this script.
-# WinGet verifies the installer hash and Windows handles the elevation prompt.
-$manager = Get-Command winget.exe -ErrorAction SilentlyContinue
-if (-not $manager) { throw 'WinGet is unavailable. Install Virtual Display Driver from its official GitHub releases page.' }
-& $manager.Source install --id VirtualDrivers.Virtual-Display-Driver --exact --source winget --accept-source-agreements --accept-package-agreements --disable-interactivity
-if ($LASTEXITCODE -ne 0) { throw "WinGet exited with code $LASTEXITCODE. If already installed, open Windows Display settings and enable Extend." }
+# Invoked only by the install button or an explicit script invocation.
+. (Join-Path $PSScriptRoot 'driver-setup.ps1')
+$ResultPath = [IO.Path]::GetFullPath($ResultPath)
+$workDirectory = Join-Path (Split-Path $ResultPath -Parent) ([guid]::NewGuid().ToString('N'))
+$result = Invoke-SidepadDriverSetup -WorkDirectory $workDirectory
+$result | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $ResultPath -Encoding UTF8
+$result | ConvertTo-Json -Depth 8
+if (-not $result.ok) { exit 1 }

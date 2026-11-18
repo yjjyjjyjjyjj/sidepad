@@ -37,6 +37,8 @@ class DisplayServer extends EventEmitter {
       ['/', ['text/html; charset=utf-8', readFileSync(path.join(publicDir, 'index.html'))]],
       ['/viewer.js', ['text/javascript; charset=utf-8', readFileSync(path.join(publicDir, 'viewer.js'))]],
       ['/style.css', ['text/css; charset=utf-8', readFileSync(path.join(publicDir, 'style.css'))]],
+      ['/sidepad.svg', ['image/svg+xml', readFileSync(path.join(__dirname, 'assets', 'sidepad.svg'))]],
+      ['/sidepad-180.png', ['image/png', readFileSync(path.join(__dirname, 'assets', 'sidepad-180.png'))]],
       ['/streaming.js', ['text/javascript; charset=utf-8', readFileSync(path.join(__dirname, 'shared', 'streaming.js'))]],
       ['/diagnostics.js', ['text/javascript; charset=utf-8', readFileSync(path.join(__dirname, 'shared', 'diagnostics.js'))]],
       ['/codecs.js', ['text/javascript; charset=utf-8', readFileSync(path.join(__dirname, 'shared', 'codecs.js'))]]

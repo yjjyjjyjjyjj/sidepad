@@ -3,12 +3,14 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <title>Sidepad · 나의 두 번째 화면</title><link rel="stylesheet" href="style.css">
+  <title>Sidepad</title><link rel="stylesheet" href="style.css">
+  <link rel="icon" href="sidepad.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="sidepad-180.png">
 </head>
 <body>
   <video id="screen" autoplay playsinline muted></video>
-  <section id="welcome"><div class="logo">S</div><span class="eyebrow">SIDEPAD / WIRELESS DISPLAY</span><h1 id="title">두 번째 화면,<br>준비됐어요.</h1><p id="description">Windows 앱에서 화면 전송을 시작해 주세요.</p><button id="join">연결하기 →</button><button id="retry" hidden>다시 연결</button><p id="detail" class="detail"></p></section>
-  <nav id="toolbar"><span class="brand">sidepad</span><span id="status">연결 대기</span><span id="mode-status" hidden></span><span id="stats"></span><span id="buffer-stats" title="최근 수신 버퍼의 평균 대기 시간입니다. 전체 화면 지연과 다릅니다." hidden></span><button id="play" hidden>영상 재생</button><button id="fullscreen">전체 화면 ↗</button><button id="hide-tools">도구 숨기기</button></nav>
+  <section id="welcome"><img class="logo" src="sidepad.svg" width="72" height="72" alt="Sidepad"><span class="eyebrow">SIDEPAD / WIRELESS DISPLAY</span><h1 id="title">두 번째 화면,<br>준비됐어요.</h1><p id="description">Windows 앱에서 화면 전송을 시작해 주세요.</p><button id="join">연결하기 →</button><button id="retry" hidden>다시 연결</button><p id="detail" class="detail"></p></section>
+  <nav id="toolbar"><span class="brand"><img src="sidepad.svg" width="24" height="24" alt="">sidepad</span><span id="status">연결 대기</span><span id="mode-status" hidden></span><span id="stats"></span><span id="buffer-stats" title="최근 수신 버퍼의 평균 대기 시간입니다. 전체 화면 지연과 다릅니다." hidden></span><button id="play" hidden>영상 재생</button><button id="fullscreen">전체 화면 ↗</button><button id="hide-tools">도구 숨기기</button></nav>
   <button id="show-tools" hidden aria-label="도구 표시">•••</button>
   <script src="streaming.js"></script>
   <script src="diagnostics.js"></script>

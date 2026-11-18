@@ -4,19 +4,20 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self' blob:; connect-src 'none'; object-src 'none'; base-uri 'none'">
-  <title>Sidepad · Wi-Fi 확장 모니터</title>
+  <title>Sidepad</title>
+  <link rel="icon" href="../assets/sidepad.svg" type="image/svg+xml">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <header><div class="brand"><span class="brand-mark">S</span> sidepad <span class="version">LOCAL / 0.1</span></div><span class="badge" id="status">시작 중</span></header>
+  <header><div class="brand"><img class="brand-mark" src="../assets/sidepad.svg" width="36" height="36" alt=""> sidepad</div><span class="badge" id="status">시작 중</span></header>
   <main>
     <section class="intro"><span class="eyebrow">YOUR SPACE, EXTENDED</span><h1>연결로 넓어지는<br>나의 작업 공간.</h1><p>같은 Wi-Fi에 연결하고, 두 번째 화면을 펼쳐 보세요.</p></section>
     <div class="workspace">
       <section class="panel control">
         <div class="section-title"><span class="step">01</span><h2>보낼 화면</h2><button class="text-button" id="refresh">새로고침 ↻</button></div>
-        <div class="screen-stage" id="stage"><video id="preview" autoplay muted playsinline hidden></video><div id="illustration"><div class="monitor"><div></div></div><span class="link-line">······</span><div class="tablet"><div>+1</div></div></div><span id="preview-label">확장 모니터를 연결해 주세요</span></div>
+        <div class="screen-stage" id="stage"><video id="preview" autoplay muted playsinline hidden></video><div id="illustration"><img class="stage-mark" src="../assets/sidepad.svg" width="80" height="80" alt="Sidepad"></div><span id="preview-label">확장 모니터를 연결해 주세요</span></div>
         <label for="display">Windows 디스플레이</label><select id="display"><option value="">디스플레이 확인 중…</option></select>
-        <div class="notice" id="setup" hidden><strong>가상 모니터를 먼저 만들어 주세요.</strong><p>드라이버 설치 후 Windows에서 ‘디스플레이 확장’을 선택하면 목록에 표시됩니다.</p><div class="button-row"><button id="install" class="small">드라이버 설치</button><button id="driver-page" class="text-button">공식 다운로드 ↗</button></div><p class="fine">Virtual Display Driver를 설치합니다. Windows 관리자 확인 창이 표시될 수 있습니다.</p></div>
+        <div class="notice" id="setup" hidden><strong>가상 모니터를 준비해 주세요.</strong><p>드라이버 설치 후 1920 × 1080 · 60 Hz 확장 화면으로 자동 설정합니다.</p><div class="button-row"><button id="install" class="small">드라이버 설치 및 설정</button><button id="driver-page" class="text-button">공식 다운로드 ↗</button></div><p class="fine">Virtual Display Driver를 설치합니다. Windows 관리자 확인 창이 표시될 수 있습니다. 기존 모니터의 배치는 유지합니다.</p></div>
         <div class="button-row settings"><button id="settings" class="text-button">Windows에서 화면 배치하기 ↗</button><button id="add-virtual" class="text-button">새 가상 모니터 추가 ＋</button></div>
         <div class="mode-card"><label class="mode-toggle" for="low-latency"><input id="low-latency" type="checkbox" checked aria-describedby="mode-hint"><span>저지연 모드</span><span class="mode-badge">선명도 우선</span></label><p id="mode-hint">선택한 해상도와 프레임을 유지하며, 수신 버퍼 대기를 줄입니다.</p></div>
         <div class="mode-card"><label class="mode-toggle" for="adaptive-bitrate"><input id="adaptive-bitrate" type="checkbox" checked aria-describedby="adaptive-hint"><span>혼잡 시 전송량 조절</span></label><p id="adaptive-hint">수신 대기와 송신 혼잡이 함께 지속되면 전송량을 낮추고, 안정되면 복원합니다. 해상도와 목표 프레임은 유지하며 압축 화질은 달라질 수 있습니다.</p></div>

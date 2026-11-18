@@ -1,4 +1,6 @@
-param([switch]$Apply, [int]$Width = 1920, [int]$Height = 1080, [int]$RefreshRate = 60)
+param([switch]$Apply, [int]$Width = 1920, [int]$Height = 1080, [int]$RefreshRate = 60,
+    [ValidateRange(0,60)][int]$WaitSeconds = 0,
+    [string]$ResultPath = (Join-Path (Split-Path $PSScriptRoot -Parent) '.runtime\display-configuration.json'))
 $ErrorActionPreference = 'Stop'
 # Uses Windows display configuration APIs, not UI automation.
 Add-Type -TypeDefinition @'
@@ -47,7 +49,8 @@ public static class SidepadDisplayConfig {
             var device = new Device { cb = Marshal.SizeOf(typeof(Device)) };
             if (!EnumDisplayDevices(null, i, ref device, 0)) break;
             var mode = NewMode();
-            if (!EnumDisplaySettingsEx(device.name, -1, ref mode, 0)) continue;
+            if (!EnumDisplaySettingsEx(device.name, -1, ref mode, 0) &&
+                !EnumDisplaySettingsEx(device.name, -2, ref mode, 0)) continue;
             result.Add(new ScreenInfo { Name = device.name, Driver = device.description,
                 Active = (device.flags & 1) != 0, Primary = (device.flags & 4) != 0,
                 X = mode.x, Y = mode.y, Width = mode.width, Height = mode.height, RefreshRate = mode.frequency });
@@ -56,7 +59,8 @@ public static class SidepadDisplayConfig {
     }
     public static void Configure(string device, int x, int y, uint width, uint height, uint frequency) {
         var current = NewMode();
-        if (!EnumDisplaySettingsEx(device, -1, ref current, 0)) throw new Exception("Cannot read current display mode.");
+        if (!EnumDisplaySettingsEx(device, -1, ref current, 0) &&
+            !EnumDisplaySettingsEx(device, -2, ref current, 0)) throw new Exception("Cannot read current or saved display mode.");
         bool supported = false;
         for (int i = 0; ; i++) {
             var available = NewMode();
@@ -77,21 +81,41 @@ public static class SidepadDisplayConfig {
 $before = [SidepadDisplayConfig]::List()
 if (-not $Apply) { $before | ConvertTo-Json -Depth 4; exit 0 }
 $virtual = @($before | Where-Object { $_.Driver -eq 'Virtual Display Driver' })
+$deadline = [DateTime]::UtcNow.AddSeconds($WaitSeconds)
+while ($virtual.Count -eq 0 -and [DateTime]::UtcNow -lt $deadline) {
+    Start-Sleep -Milliseconds 500
+    $before = [SidepadDisplayConfig]::List()
+    $virtual = @($before | Where-Object { $_.Driver -eq 'Virtual Display Driver' })
+}
 if ($virtual.Count -ne 1) { throw 'Expected exactly one virtual display; refusing an ambiguous display change.' }
 if ($virtual[0].Primary) { throw 'The virtual monitor is the primary display. Choose a physical primary monitor first.' }
 $others = @($before | Where-Object { $_.Active -and $_.Name -ne $virtual[0].Name })
 $primary = @($others | Where-Object Primary)
 if ($primary.Count -ne 1) { throw 'Cannot identify the existing primary display.' }
-$rightEdge = ($others | ForEach-Object { $_.X + $_.Width } | Measure-Object -Maximum).Maximum
-[SidepadDisplayConfig]::Configure($virtual[0].Name, [int]$rightEdge, $primary[0].Y, $Width, $Height, $RefreshRate)
+$rightmost = $others | Sort-Object { $_.X + $_.Width } -Descending | Select-Object -First 1
+$targetX = [int]($rightmost.X + $rightmost.Width)
+$targetY = $rightmost.Y
+# Keep the existing placement when it remains adjacent and non-overlapping
+# after resizing; otherwise attach at the physical right edge.
+if ($virtual[0].Active) {
+    $x = $virtual[0].X; $y = $virtual[0].Y
+    $overlap = @($others | Where-Object { $x -lt ($_.X + $_.Width) -and ($x + $Width) -gt $_.X -and $y -lt ($_.Y + $_.Height) -and ($y + $Height) -gt $_.Y })
+    $adjacent = @($others | Where-Object {
+        (($x -eq ($_.X + $_.Width) -or ($x + $Width) -eq $_.X) -and $y -lt ($_.Y + $_.Height) -and ($y + $Height) -gt $_.Y) -or
+        (($y -eq ($_.Y + $_.Height) -or ($y + $Height) -eq $_.Y) -and $x -lt ($_.X + $_.Width) -and ($x + $Width) -gt $_.X)
+    })
+    if ($overlap.Count -eq 0 -and $adjacent.Count -gt 0) { $targetX = $x; $targetY = $y }
+}
+[SidepadDisplayConfig]::Configure($virtual[0].Name, $targetX, $targetY, $Width, $Height, $RefreshRate)
 $after = [SidepadDisplayConfig]::List()
 foreach ($old in $others) {
     $new = $after | Where-Object Name -eq $old.Name
-    if (-not $new -or $new.Primary -ne $old.Primary -or $new.X -ne $old.X -or $new.Y -ne $old.Y -or $new.Width -ne $old.Width -or $new.Height -ne $old.Height) {
+    if (-not $new -or -not $new.Active -or $new.Primary -ne $old.Primary -or $new.X -ne $old.X -or $new.Y -ne $old.Y -or $new.Width -ne $old.Width -or $new.Height -ne $old.Height -or $new.RefreshRate -ne $old.RefreshRate) {
         throw "The existing display layout changed unexpectedly: $($old.Name)"
     }
 }
 $configured = $after | Where-Object Name -eq $virtual[0].Name
-if (-not $configured.Active -or $configured.Width -ne $Width -or $configured.Height -ne $Height) { throw 'Virtual display verification failed.' }
+if (-not $configured.Active -or $configured.Primary -or $configured.Width -ne $Width -or $configured.Height -ne $Height -or $configured.RefreshRate -ne $RefreshRate) { throw 'Virtual display verification failed.' }
 $result = @{ ok = $true; before = $before; after = $after }
-$result | ConvertTo-Json -Depth 4 | Tee-Object -FilePath (Join-Path (Split-Path $PSScriptRoot -Parent) '.runtime\display-configuration.json')
+New-Item -ItemType Directory -Path (Split-Path ([IO.Path]::GetFullPath($ResultPath)) -Parent) -Force | Out-Null
+$result | ConvertTo-Json -Depth 4 | Tee-Object -FilePath $ResultPath

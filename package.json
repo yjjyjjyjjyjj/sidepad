@@ -6,6 +6,7 @@
   "main": "src/main.cjs",
   "scripts": {
     "start": "electron .",
+    "icons": "electron scripts/build-icons.cjs",
     "preview": "electron . --preview",
     "preview:hardware": "electron . --hardware-preview",
     "preview:buffer": "electron . --buffer-preview",
