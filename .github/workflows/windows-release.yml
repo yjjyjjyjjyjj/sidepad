@@ -1,12 +1,18 @@
 name: Windows release draft
-run-name: Sidepad ${{ github.ref_name }} · Windows x64
+run-name: Sidepad ${{ inputs.tag || github.ref_name }} · Windows x64
 
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag to build
+        required: true
+        type: string
 
 concurrency:
-  group: windows-release-${{ github.ref }}
+  group: windows-release-${{ inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -15,9 +21,12 @@ jobs:
     timeout-minutes: 35
     permissions:
       contents: write
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
           persist-credentials: false
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
@@ -28,8 +37,8 @@ jobs:
         shell: pwsh
         run: |
           $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
-          if ($env:GITHUB_REF_NAME -cne "v$version") {
-            throw "Tag $env:GITHUB_REF_NAME does not match package.json version $version."
+          if ($env:RELEASE_TAG -cne "v$version") {
+            throw "Tag $env:RELEASE_TAG does not match package.json version $version."
           }
       - run: npm ci
       - run: npm run check
@@ -41,7 +50,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = $env:GITHUB_REF_NAME
+          $tag = $env:RELEASE_TAG
           $version = $tag.Substring(1)
           $filename = "Sidepad-Setup-$version-x64.exe"
           $installer = Join-Path dist $filename

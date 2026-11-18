@@ -20,6 +20,8 @@
 
 GitHub Actions가 Windows에서 테스트와 빌드를 실행하고 성공하면 설치 EXE, SHA-256 파일, 한국어 설치 안내를 [릴리스 초안](https://github.com/yjjyjjyjjyjj/sidepad/releases)에 첨부합니다. 저장소에 쓰기 권한이 있는 계정으로 초안의 EXE를 받아 설치와 기기 연결을 확인한 뒤 **Edit → Publish release**를 누르면 공개됩니다. 첫 배포인 `v0.2.0`과 버전에 `-beta.1` 같은 사전 출시 표기가 있는 빌드는 초안에서 **Pre-release**가 선택됩니다.
 
+이미 올린 태그의 빌드를 수동으로 시작하려면 **Actions → Windows release draft → Run workflow**에서 브랜치 `main`과 기존 태그명을 선택합니다.
+
 ## 소스에서 실행
 
 필요 환경: Windows 10/11, Node.js 22.12 이상, WebRTC를 지원하는 기기 브라우저. 실제 검증한 개발 환경은 Node.js 22.18 및 Windows x64입니다. 특정 모든 기기·브라우저 조합에 대한 실기기 호환성을 보장하지 않습니다.
