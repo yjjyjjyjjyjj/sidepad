@@ -1,5 +1,5 @@
 const { app, BrowserWindow, ipcMain, desktopCapturer, screen, session, shell, clipboard, powerSaveBlocker } = require('electron');
-const { networkInterfaces } = require('node:os');
+const { networkInterfaces, cpus } = require('node:os');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { spawn } = require('node:child_process');
@@ -14,6 +14,28 @@ const hostFile = path.join(__dirname, 'host', 'index.html');
 const hostUrl = pathToFileURL(hostFile).href;
 let win, server, selectedId = null, blocker = null;
 let driverProcess = null;
+let previousResources;
+
+function performanceSnapshot() {
+  const now = performance.now();
+  const processes = app.getAppMetrics();
+  let cpuSeconds = 0, measured = false;
+  const previous = previousResources;
+  const totals = new Map();
+  for (const item of processes) {
+    const total = item.cpu.cumulativeCPUUsage;
+    if (!Number.isFinite(total)) continue;
+    totals.set(item.pid, total);
+    const before = previous?.totals.get(item.pid);
+    if (Number.isFinite(before) && total >= before) { cpuSeconds += total - before; measured = true; }
+  }
+  previousResources = { now, totals };
+  return {
+    cpuPercent: measured && now > previous.now ? cpuSeconds / ((now - previous.now) / 1000) / cpus().length * 100 : null,
+    videoEncodeFeature: app.getGPUFeatureStatus().video_encode || 'unknown',
+    processCount: processes.length
+  };
+}
 
 function addresses() {
   return [...new Set(Object.values(networkInterfaces()).flat().filter(n => n && n.family === 'IPv4' && !n.internal).map(n => n.address))];
@@ -50,6 +72,7 @@ function showMainWindow() {
 
 function stopCapture() {
   selectedId = null;
+  previousResources = null;
   server?.setActive(false);
   if (blocker !== null && powerSaveBlocker.isStarted(blocker)) powerSaveBlocker.stop(blocker);
   blocker = null;
@@ -80,6 +103,11 @@ async function start() {
     return { links, port: server.port, displays: await displays(), peerId: server.peerId, active: server.active, preview };
   });
   handle('display:list', displays);
+  handle('display:performance', performanceSnapshot);
+  handle('display:copy-diagnostics', text => {
+    if (typeof text !== 'string' || text.length > 50000) throw new Error('Invalid diagnostic report');
+    clipboard.writeText(text);
+  });
   handle('display:select', async id => {
     const display = (await displays()).find(d => d.id === id && d.available && (!d.primary || smoke));
     if (!display) throw new Error('확장된 보조 디스플레이를 선택해 주세요.');

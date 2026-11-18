@@ -1,10 +1,12 @@
 const $ = id => document.getElementById(id);
-const { applyReceiverLatency, receiverMetrics } = window.SidepadStreaming;
+const { applyReceiverLatency } = window.SidepadStreaming;
+const { receiverMetrics } = window.SidepadDiagnostics;
 const token = location.hash.slice(1);
 // Keep the pairing secret out of request URLs, referrers, and server logs.
 let socket, peer, sessionId, signalQueue = Promise.resolve(), candidateQueue = [];
 let reconnectTimer, statsTimer, wakeLock, joined = false, retryCount = 0, terminal = false;
 let previousInbound, receiverTuning = null;
+let latestDiagnostics = null;
 
 function welcome(title, description) {
   $('welcome').hidden = false;
@@ -22,6 +24,7 @@ function closePeer() {
   $('buffer-stats').hidden = true;
   previousInbound = null;
   receiverTuning = null;
+  latestDiagnostics = null;
   $('play').hidden = true;
   wakeLock?.release().catch(() => {});
   wakeLock = null;
@@ -70,19 +73,28 @@ async function receiveOffer(signal) {
   await pc.setLocalDescription(await pc.createAnswer());
   if (peer !== pc) return;
   send({ type: 'answer', sessionId: id, sdp: pc.localDescription.sdp });
+  let statsBusy = false, sequence = 0;
   statsTimer = setInterval(async () => {
+    if (statsBusy) return;
+    statsBusy = true;
     try {
       const report = await pc.getStats();
       if (peer !== pc) return;
       for (const stat of report.values()) {
         if (stat.type !== 'inbound-rtp' || stat.kind !== 'video') continue;
         $('stats').textContent = `${stat.frameWidth || '—'} × ${stat.frameHeight || '—'} · ${Math.round(stat.framesPerSecond || 0)} fps`;
-        const metrics = receiverMetrics(stat, previousInbound);
+        const metrics = receiverMetrics(stat, previousInbound, receiverTuning, lowLatency);
+        latestDiagnostics = metrics;
         previousInbound = stat;
         $('buffer-stats').hidden = false;
-        $('buffer-stats').textContent = metrics.bufferMs === null ? '버퍼 — ms' : `버퍼 ${Math.round(metrics.bufferMs)} ms`;
+        $('buffer-stats').textContent = `버퍼 ${metrics.bufferMs === null ? '—' : metrics.bufferMs.toFixed(1)} ms · 디코딩 ${metrics.decodeMs === null ? '—' : metrics.decodeMs.toFixed(1)} ms`;
+        // Diagnostics are disposable; don't let a blocked signaling socket accumulate samples.
+        if (socket?.readyState === WebSocket.OPEN && socket.bufferedAmount < 8192) {
+          send({ type: 'diagnostics', sessionId: id, sequence: sequence++, metrics });
+        }
       }
     } catch { /* Closed while polling. */ }
+    finally { statsBusy = false; }
   }, 2000);
 }
 

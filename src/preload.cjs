@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('sidepad', {
   active: invoke('display:active'), send: invoke('display:send'), disconnect: invoke('display:disconnect'),
   copy: invoke('display:copy'), settings: invoke('display:settings'), driverPage: invoke('display:driver-page'),
   installDriver: invoke('display:install-driver'),
+  performance: invoke('display:performance'), copyDiagnostics: invoke('display:copy-diagnostics'),
   onViewer: subscribe('display:viewer'), onSignal: subscribe('display:signal'), onRetry: subscribe('display:retry'),
   onDisplays: subscribe('display:displays'), onRemoved: subscribe('display:removed'),
   onError: subscribe('display:error'), onDriverResult: subscribe('display:driver-result')

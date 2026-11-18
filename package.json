@@ -9,7 +9,8 @@
     "preview": "electron . --preview",
     "test": "node --test test/*.test.cjs",
     "check": "node scripts/check.cjs",
-    "smoke": "electron . --smoke-test"
+    "smoke": "electron . --smoke-test",
+    "benchmark": "electron . --smoke-test --benchmark"
   },
   "engines": {
     "node": ">=22.12.0"

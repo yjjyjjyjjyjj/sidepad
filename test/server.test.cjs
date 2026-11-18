@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const { once } = require('node:events');
 const { WebSocket } = require('ws');
 const { DisplayServer, validSignal } = require('../src/server.cjs');
+const { receiverMetrics } = require('../src/shared/diagnostics.js');
 
 async function setup(t) {
   const server = await new DisplayServer({ port: 0, bind: '127.0.0.1' }).listen();
@@ -34,6 +35,7 @@ test('viewer files work and cannot read local files or pairing secrets', async t
   assert.ok(!html.includes(server.token));
   assert.match(response.headers.get('content-security-policy'), /frame-ancestors 'none'/);
   assert.equal((await fetch(`http://127.0.0.1:${server.port}/src/main.cjs`)).status, 404);
+  assert.equal((await fetch(`http://127.0.0.1:${server.port}/diagnostics.js`)).status, 200);
   assert.equal((await fetch(`http://127.0.0.1:${server.port}/?token=${server.token}`)).status, 404);
 });
 test('invalid pairing is rejected without claiming the viewer slot', async t => {
@@ -103,4 +105,28 @@ test('viewer cannot send offers or arbitrary control instructions', () => {
   assert.equal(validSignal({ type: 'answer', sdp: 'x'.repeat(70000) }), false);
   assert.equal(validSignal({ type: 'candidate', candidate: { candidate: 'x', sdpMid: '0', sdpMLineIndex: -1 } }), false);
   assert.equal(validSignal({ type: 'candidate', candidate: { candidate: 'x', sdpMid: '0', sdpMLineIndex: 0 } }), true);
+});
+
+test('authenticated receiver diagnostics are forwarded only while capture is active', async t => {
+  const server = await setup(t);
+  const ws = await paired(server);
+  const metrics = receiverMetrics({ id: 'in', timestamp: 1 }, null, null, false);
+  const data = { type: 'diagnostics', sessionId: 'session', sequence: 0, metrics };
+  server.setActive(true);
+  const forwarded = once(server, 'signal');
+  ws.send(JSON.stringify(data));
+  assert.deepEqual((await forwarded)[0].signal, data);
+  const stopped = once(ws, 'message');
+  server.setActive(false);
+  await stopped;
+  let count = 0;
+  server.on('signal', () => count++);
+  ws.send(JSON.stringify({ ...data, sequence: 1 }));
+  const retry = once(server, 'retry');
+  ws.send(JSON.stringify({ type: 'retry' }));
+  await retry;
+  assert.equal(count, 0);
+  assert.equal(validSignal({ ...data, metrics: { ...metrics, decodeMs: -1 } }), false);
+  assert.equal(validSignal({ ...data, sessionId: 'x'.repeat(65) }), false);
+  assert.equal(validSignal({ ...data, sequence: 1.5 }), false);
 });

@@ -1,9 +1,43 @@
 const $ = id => document.getElementById(id);
 const api = window.sidepad;
 const { createStreamSettings, applySenderSettings } = window.SidepadStreaming;
+const diagnostics = window.SidepadDiagnostics;
 let config, stream, peer, peerId, negotiation, candidates = [], signalQueue = Promise.resolve();
 let starting = false, offering = false, offerPending = false, statsTimer, previousStats;
 let activeSettings, senderTuning;
+let senderDiagnostics = null, senderUpdatedAt = 0, receiverDiagnostics = null, resourceStats = null;
+
+function diagnosticReport() {
+  const now = performance.now();
+  const senderFresh = now - senderUpdatedAt <= 6500;
+  return {
+    version: 1, recordedAt: new Date().toISOString(), settings: activeSettings || null,
+    sender: senderFresh ? senderDiagnostics : null,
+    receiver: diagnostics.freshReceiver(receiverDiagnostics, now), resources: senderFresh ? resourceStats : null,
+    notes: ['Recent interval averages; sendQueueMs is per packet, encode/buffer/decode are per frame.',
+      'receiveProcessMs includes buffer/reassembly/decode. Do not sum overlapping metrics.',
+      'Capture-to-display latency and GPU utilization are not measured. Encoder efficiency is a browser hint, not proof of NVENC.',
+      'CPU percentage covers processes in this Sidepad instance, normalized to all logical CPU cores.']
+  };
+}
+function renderDiagnostics() {
+  const { sender, receiver, resources } = diagnosticReport();
+  const ms = value => Number.isFinite(value) ? `${value.toFixed(1)} ms` : '—';
+  $('diag-encode').textContent = ms(sender?.encodeMs);
+  $('diag-send').textContent = ms(sender?.sendQueueMs);
+  $('diag-buffer').textContent = ms(receiver?.bufferMs);
+  $('diag-decode').textContent = ms(receiver?.decodeMs);
+  $('diag-receive').textContent = ms(receiver?.receiveProcessMs);
+  $('diag-cpu').textContent = Number.isFinite(resources?.cpuPercent) ? `${resources.cpuPercent.toFixed(1)}%` : '—';
+  $('diag-encoder').textContent = `인코더: ${sender?.codec || '—'} / ${sender?.encoder || '확인 불가'} · ${diagnostics.efficiencyLabel(sender?.powerEfficient)}`;
+  const bufferLabels = { minimum: '최소 버퍼 요청 적용', automatic: '자동 버퍼', unsupported: '버퍼 제어 미지원', failed: '버퍼 제어 적용 실패' };
+  $('diag-decoder').textContent = receiver
+    ? `디코더: ${receiver.decoder || '확인 불가'} · ${bufferLabels[receiver.bufferControl]} · 제외 ${receiver.droppedFrames ?? '—'} 프레임`
+    : '기기 진단 대기 · 마지막 수신으로부터 6.5초가 지나면 수치를 숨깁니다.';
+  const reasons = { none: '제한 보고 없음', cpu: 'CPU', bandwidth: '대역폭', other: '기타' };
+  $('diag-limits').textContent = `브라우저 제한 사유: ${reasons[sender?.limitation] || '확인 불가'} · 영상 인코딩 가속 지원: ${resources?.videoEncodeFeature || '확인 불가'}`;
+  $('diag-hint').textContent = diagnostics.diagnosis(sender, receiver, activeSettings?.fps || 60);
+}
 
 function message(text) { $('message').textContent = text; $('message').hidden = !text; }
 function status(text) { $('status').textContent = text; }
@@ -46,6 +80,10 @@ function closePeer() {
   if (peer) { peer.onconnectionstatechange = null; peer.onicecandidate = null; peer.close(); peer = null; }
   clearInterval(statsTimer);
   previousStats = null;
+  senderDiagnostics = null;
+  receiverDiagnostics = null;
+  resourceStats = null;
+  renderDiagnostics();
   $('framerate').textContent = '— fps';
   $('bitrate').textContent = '— Mbps';
   $('roundtrip').textContent = '왕복 — ms';
@@ -85,24 +123,29 @@ async function offer() {
     if (!tuning.applied) message('브라우저가 전송률 설정을 적용하지 못했습니다. 선택한 캡처 해상도와 프레임으로 전송합니다.');
     await signal({ type: 'offer', sdp: pc.localDescription.sdp, lowLatency: settings.lowLatency });
     if (peer !== pc) return;
+    let statsBusy = false;
     statsTimer = setInterval(async () => {
+      renderDiagnostics();
+      if (statsBusy) return;
+      statsBusy = true;
       try {
-        const stats = await pc.getStats();
+        const [stats, resources] = await Promise.all([pc.getStats(), api.performance().catch(() => null)]);
         if (peer !== pc) return;
-        let selectedPair;
-        for (const stat of stats.values()) {
-          if (stat.type === 'transport' && stat.selectedCandidatePairId) selectedPair = stats.get(stat.selectedCandidatePairId);
-        }
-        if (selectedPair && Number.isFinite(selectedPair.currentRoundTripTime)) $('roundtrip').textContent = `왕복 ${Math.round(selectedPair.currentRoundTripTime * 1000)} ms`;
+        resourceStats = resources;
         for (const stat of stats.values()) {
           if (stat.type !== 'outbound-rtp' || stat.kind !== 'video') continue;
+          senderDiagnostics = diagnostics.senderMetrics(stat, previousStats, stats);
+          senderUpdatedAt = performance.now();
           if (stat.frameWidth > 0 && stat.frameHeight > 0) $('resolution').textContent = `${stat.frameWidth} × ${stat.frameHeight}`;
-          $('framerate').textContent = `${Math.round(stat.framesPerSecond || 0)} fps`;
-          if (previousStats && stat.timestamp > previousStats.time) $('bitrate').textContent = `${Math.max(0, (stat.bytesSent - previousStats.bytes) * 8 / (stat.timestamp - previousStats.time) / 1000).toFixed(1)} Mbps`;
-          previousStats = { bytes: stat.bytesSent, time: stat.timestamp };
+          $('framerate').textContent = `${senderDiagnostics.encodedFps === null ? '—' : Math.round(senderDiagnostics.encodedFps)} fps`;
+          $('bitrate').textContent = `${senderDiagnostics.bitrateMbps === null ? '—' : senderDiagnostics.bitrateMbps.toFixed(1)} Mbps`;
+          $('roundtrip').textContent = `왕복 ${senderDiagnostics.rttMs === null ? '—' : Math.round(senderDiagnostics.rttMs)} ms`;
+          previousStats = stat;
         }
+        renderDiagnostics();
       } catch { /* Connection may be closed during polling. */ }
-    }, 1500);
+      finally { statsBusy = false; }
+    }, 2000);
   } catch (error) {
     if (peer === pc) { closePeer(); message(`영상 연결을 시작할 수 없습니다: ${error.message}`); }
   } finally {
@@ -180,6 +223,9 @@ api.onSignal(({ peerId: from, signal }) => {
     } else if (signal.type === 'candidate') {
       if (pc.remoteDescription) await pc.addIceCandidate(signal.candidate);
       else candidates.push(signal.candidate);
+    } else if (signal.type === 'diagnostics') {
+      receiverDiagnostics = diagnostics.acceptReceiver(receiverDiagnostics, signal, negotiation, performance.now());
+      renderDiagnostics();
     }
   }).catch(error => { if (pc === peer) message(`연결 협상 오류: ${error.message}`); });
 });
@@ -208,6 +254,10 @@ $('install').onclick = async () => {
 };
 $('disconnect').onclick = () => api.disconnect();
 $('copy').onclick = async () => { await api.copy($('network').value); message('연결 링크를 복사했습니다. 연결할 기기의 브라우저에서 열어 주세요.'); };
+$('copy-diagnostics').onclick = async () => {
+  try { await api.copyDiagnostics(JSON.stringify(diagnosticReport(), null, 2)); message('진단 결과를 복사했습니다. 연결 토큰이나 화면 영상은 포함하지 않습니다.'); }
+  catch (error) { message(error.message); }
+};
 function showNetwork() {
   const link = config.links.find(item => item.ip === $('network').value);
   if (link) $('qr').src = link.qr;

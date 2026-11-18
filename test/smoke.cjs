@@ -94,6 +94,24 @@ async function run({ app, win, server, displays }) {
       assert.equal(video.width, 1920, 'Low latency must deliver the full HD source without downscaling');
       assert.equal(video.height, 1080);
     }
+    const measurement = await until(win, `(() => {
+      const report = diagnosticReport();
+      return report.sender?.encodeMs !== null && report.sender?.encodeMs !== undefined &&
+        report.receiver?.decodeMs !== null && report.receiver?.decodeMs !== undefined && report;
+    })()`);
+    assert.equal(measurement.sender.width, video.width);
+    assert.equal(measurement.receiver.width, video.width);
+    assert.ok(measurement.sender.sendQueueMs === null || measurement.sender.sendQueueMs >= 0);
+    assert.ok(measurement.receiver.bufferMs >= 0);
+    assert.ok(!JSON.stringify(measurement).includes(server.token));
+    writeFileSync(path.join(artifacts, 'diagnostics.json'), JSON.stringify(measurement, null, 2));
+    await win.webContents.executeJavaScript("document.getElementById('diagnostics').open = true");
+    win.setContentSize(1150, 1500);
+    writeFileSync(path.join(artifacts, 'diagnostics-ui.png'), (await win.webContents.capturePage()).toPNG());
+    if (process.argv.includes('--benchmark')) {
+      const comparison = await require('./benchmark.cjs').run({ win, viewer, until, chosen, expectedWidth: video.width, expectedHeight: video.height });
+      writeFileSync(path.join(artifacts, comparison.animatedPattern ? 'benchmark-pattern.json' : 'benchmark.json'), JSON.stringify(comparison, null, 2));
+    }
     const before = await viewer.webContents.executeJavaScript("document.getElementById('screen').currentTime");
     await delay(1000);
     const after = await viewer.webContents.executeJavaScript("document.getElementById('screen').currentTime");
@@ -102,6 +120,7 @@ async function run({ app, win, server, displays }) {
     await until(viewer, "document.getElementById('screen').videoWidth > 0 && document.getElementById('screen').currentTime > 0.25");
     await win.webContents.executeJavaScript("document.getElementById('stop').click()", true);
     await until(viewer, "document.getElementById('screen').srcObject === null && document.getElementById('status').textContent === '전송 대기'");
+    assert.equal(await win.webContents.executeJavaScript('diagnosticReport().receiver'), null);
     // Repeat capture with the same paired viewer to check stop/start negotiation.
     await win.webContents.executeJavaScript("document.getElementById('start').click()", true);
     await until(viewer, "document.getElementById('screen').videoWidth > 0 && document.getElementById('screen').currentTime > 0.25");
@@ -122,7 +141,7 @@ async function run({ app, win, server, displays }) {
     await until(viewer, "document.getElementById('screen').videoWidth > 0 && document.getElementById('screen').currentTime > 0.25");
     const standardMode = await verifyMode(win, viewer, false);
     await win.webContents.executeJavaScript("document.getElementById('stop').click()", true);
-    console.log(JSON.stringify({ ok: true, capture: { label: chosen.label, x: chosen.x, primary: chosen.primary, width: video.width, height: video.height }, lowMode, standardMode, checks: ['native desktop capture', 'WebRTC video frames', 'low-latency sender and receiver settings', 'viewer retry', 'stop', 'restart', 'viewer reload', 'restore standard mode'], issues }, null, 2));
+    console.log(JSON.stringify({ ok: true, capture: { label: chosen.label, x: chosen.x, primary: chosen.primary, width: video.width, height: video.height }, lowMode, standardMode, measurement, checks: ['native desktop capture', 'WebRTC video frames', 'low-latency sender and receiver settings', 'receiver diagnostics delivery and reset', 'viewer retry', 'stop', 'restart', 'viewer reload', 'restore standard mode'], issues }, null, 2));
     viewer.destroy();
     await server.close();
     app.exit(0);
