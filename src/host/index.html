@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self' blob:; connect-src 'none'; object-src 'none'; base-uri 'none'">
+  <title>Sidepad · Wi-Fi 확장 모니터</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header><div class="brand"><span class="brand-mark">S</span> sidepad <span class="version">LOCAL / 0.1</span></div><span class="badge" id="status">시작 중</span></header>
+  <main>
+    <section class="intro"><span class="eyebrow">YOUR SPACE, EXTENDED</span><h1>연결로 넓어지는<br>나의 작업 공간.</h1><p>같은 Wi-Fi에 연결하고, 두 번째 화면을 펼쳐 보세요.</p></section>
+    <div class="workspace">
+      <section class="panel control">
+        <div class="section-title"><span class="step">01</span><h2>보낼 화면</h2><button class="text-button" id="refresh">새로고침 ↻</button></div>
+        <div class="screen-stage" id="stage"><video id="preview" autoplay muted playsinline hidden></video><div id="illustration"><div class="monitor"><div></div></div><span class="link-line">······</span><div class="tablet"><div>+1</div></div></div><span id="preview-label">확장 모니터를 연결해 주세요</span></div>
+        <label for="display">Windows 디스플레이</label><select id="display"><option value="">디스플레이 확인 중…</option></select>
+        <div class="notice" id="setup" hidden><strong>가상 모니터를 먼저 만들어 주세요.</strong><p>드라이버 설치 후 Windows에서 ‘디스플레이 확장’을 선택하면 목록에 표시됩니다.</p><div class="button-row"><button id="install" class="small">드라이버 설치</button><button id="driver-page" class="text-button">공식 다운로드 ↗</button></div><p class="fine">Virtual Display Driver를 설치합니다. Windows 관리자 확인 창이 표시될 수 있습니다.</p></div>
+        <div class="button-row settings"><button id="settings" class="text-button">Windows에서 화면 배치하기 ↗</button><button id="add-virtual" class="text-button">새 가상 모니터 추가 ＋</button></div>
+        <div class="mode-card"><label class="mode-toggle" for="low-latency"><input id="low-latency" type="checkbox" checked aria-describedby="mode-hint"><span>저지연 모드</span><span class="mode-badge">선명도 우선</span></label><p id="mode-hint">선택한 해상도와 프레임을 유지하며, 수신 버퍼 대기를 줄입니다.</p></div>
+        <div class="options"><div><label for="quality">화질</label><select id="quality"><option value="balanced">균형 · 최대 1920 × 1200</option><option value="sharp">선명하게 · 최대 2560 × 1600</option><option value="light">가볍게 · 최대 1280 × 800</option></select></div><div><label for="fps">목표 프레임</label><select id="fps"><option value="30">30 fps</option><option value="60" selected>60 fps</option></select></div></div>
+        <button id="start" class="primary" disabled>화면 전송 시작 <span>→</span></button><button id="stop" class="stop" hidden>화면 전송 중지</button>
+        <div class="metrics"><span id="resolution">— 해상도</span><span id="framerate">— fps</span><span id="bitrate">— Mbps</span><span id="roundtrip" title="네트워크 왕복 시간입니다. 전체 화면 지연과 다릅니다.">왕복 — ms</span></div>
+      </section>
+      <aside class="panel connect">
+        <div class="section-title"><span class="step">02</span><h2>기기 연결</h2></div>
+        <p class="muted">연결할 기기로 QR 코드를 스캔한 뒤 브라우저에서 열어 주세요.</p>
+        <div class="qr-wrap"><img id="qr" width="220" height="220" alt="기기 연결용 QR 코드"><span class="qr-placeholder" id="no-network" hidden>연결 가능한 네트워크가 없습니다.</span></div>
+        <label for="network">PC 네트워크 주소</label><select id="network"></select><button id="copy" class="secondary">연결 링크 복사</button>
+        <div class="connection"><span class="dot" id="dot"></span><div><strong id="viewer-state">기기 접속 대기</strong><p id="viewer-hint">PC와 같은 공유기를 사용해 주세요.</p></div></div><button id="disconnect" class="text-button" hidden>기기 연결 끊기</button>
+        <div class="tips"><span>연결이 안 되나요?</span><p>게스트 Wi-Fi에서는 기기끼리 연결이 차단될 수 있어요. Windows 방화벽 안내가 나오면 개인 네트워크에서 이 앱을 허용해 주세요.</p></div>
+      </aside>
+    </div>
+    <div id="message" role="status" aria-live="polite" hidden></div>
+    <footer><span>WINDOWS → DEVICE</span><span>PC 키보드와 마우스로 창을 옮겨 사용하세요.</span><span>Wi-Fi / LAN</span></footer>
+  </main>
+  <script src="../shared/streaming.js"></script>
+  <script src="host.js"></script>
+</body>
+</html>

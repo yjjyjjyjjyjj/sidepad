@@ -1,0 +1,9 @@
+node_modules/
+.npm-cache/
+.electron-cache/
+.runtime/
+artifacts/
+*.log
+.env
+.env.*
+!.env.example
