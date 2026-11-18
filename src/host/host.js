@@ -333,4 +333,10 @@ api.config().then(result => {
   for (const link of result.links) $('network').add(new Option(`${link.ip}:${result.port}`, link.ip));
   showNetwork();
   status('준비됨');
+  if (result.finishSetup) {
+    message('재시작 후 남은 가상 화면 설정을 마칩니다. Windows 관리자 확인이 나오면 허용해 주세요.');
+    $('install').click();
+  } else if (result.restartRequired) {
+    message('드라이버 설치를 마치려면 Windows를 재시작해 주세요. 재시작 후 Sidepad를 열면 남은 화면 설정을 자동으로 진행합니다.');
+  }
 }).catch(error => { status('시작 실패'); message(error.message); });

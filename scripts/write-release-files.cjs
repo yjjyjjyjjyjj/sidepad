@@ -1,0 +1,11 @@
+const fs = require('node:fs');
+const path = require('node:path');
+const { createHash } = require('node:crypto');
+const { version } = require('../package.json');
+const root = path.join(__dirname, '..');
+const name = `Sidepad-Setup-${version}-x64.exe`;
+const file = path.join(root, 'dist', name);
+const sha256 = createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+fs.writeFileSync(`${file}.sha256`, `${sha256}  ${name}\n`, 'utf8');
+fs.copyFileSync(path.join(root, 'docs', 'INSTALL.ko.txt'), path.join(root, 'dist', 'Sidepad-설치안내.txt'));
+console.log(JSON.stringify({ installer: name, bytes: fs.statSync(file).size, sha256 }, null, 2));

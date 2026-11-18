@@ -63,7 +63,7 @@ async function run({ app, win, server, displays }) {
     })()`);
     assert.deepEqual(controls.defaults, { quality: 'balanced', fps: '60', low: true });
     assert.deepEqual(controls.selections, Array(2).fill({ quality: 'sharp', fps: '30', enabled: true }));
-    const artifacts = path.join(__dirname, '..', 'artifacts');
+    const artifacts = app.isPackaged ? path.join(app.getPath('userData'), 'artifacts') : path.join(__dirname, '..', 'artifacts');
     mkdirSync(artifacts, { recursive: true });
     writeFileSync(path.join(artifacts, 'windows-app.png'), (await win.webContents.capturePage()).toPNG());
     const available = (await displays()).filter(item => item.available);

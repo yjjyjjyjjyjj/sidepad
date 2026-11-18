@@ -1,8 +1,11 @@
 param(
     [string]$PackagePath = (Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Packages\VirtualDrivers.Virtual-Display-Driver_Microsoft.Winget.Source_8wekyb3d8bbwe'),
-    [string]$ResultPath = (Join-Path (Split-Path $PSScriptRoot -Parent) '.runtime\driver-install-result.json')
+    [string]$ResultPath = (Join-Path $env:LOCALAPPDATA 'Sidepad\driver-install-result.json'),
+    [string]$ExecutablePath = ''
 )
 $ErrorActionPreference = 'Stop'
+# Use Windows' built-in modules even when launched from npm/PowerShell 7.
+$env:PSModulePath = "$PSHOME\Modules;$env:SystemRoot\System32\WindowsPowerShell\v1.0\Modules"
 $result = @{ ok = $false; phase = 'initializing'; rebootRequired = $false }
 try {
     $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
@@ -16,12 +19,18 @@ try {
     })
     if ($existing.Count -gt 1) { throw 'Multiple virtual driver devices found; refusing to add another.' }
     if ($existing.Count -eq 0) {
-        $source = Join-Path $PackagePath 'SignedDrivers\x86\VDD'
-        $installer = Join-Path $PackagePath 'Dependencies\devcon.exe'
+        if (-not [Environment]::Is64BitProcess -or $env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { throw 'This driver package supports Intel/AMD 64-bit Windows only.' }
+        $source = $PackagePath
+        if (-not (Test-Path -LiteralPath (Join-Path $source 'MttVDD.inf'))) { $source = Join-Path $PackagePath 'SignedDrivers\x86\VDD' }
         $catalogSignature = Get-AuthenticodeSignature -LiteralPath (Join-Path $source 'mttvdd.cat')
-        $installerSignature = Get-AuthenticodeSignature -LiteralPath $installer
         if ($catalogSignature.Status -ne 'Valid' -or $catalogSignature.SignerCertificate.Subject -notlike 'CN=SignPath Foundation,*') { throw 'Driver catalog signature validation failed.' }
-        if ($installerSignature.Status -ne 'Valid' -or $installerSignature.SignerCertificate.Subject -notlike 'CN=Microsoft Corporation,*') { throw 'Microsoft device installer signature validation failed.' }
+        $manifestPath = Join-Path $source 'manifest.json'
+        if (Test-Path -LiteralPath $manifestPath) {
+            $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+            foreach ($name in @('MttVDD.inf','MttVDD.dll','mttvdd.cat','vdd_settings.xml')) {
+                if ((Get-FileHash -LiteralPath (Join-Path $source $name) -Algorithm SHA256).Hash -ne $manifest.files.$name) { throw "Driver payload hash mismatch: $name" }
+            }
+        }
         $destination = 'C:\VirtualDisplayDriver'
         New-Item -ItemType Directory -Path $destination -Force | Out-Null
         foreach ($name in @('MttVDD.inf','MttVDD.dll','mttvdd.cat')) {
@@ -34,14 +43,15 @@ try {
         # Leave certificate stores and Windows driver trust policy unchanged.
         # Windows may ask the user to confirm this publisher during installation.
         $result.phase = 'installing-root-display-device'
-        $output = & $installer install (Join-Path $destination 'MttVDD.inf') 'Root\MttVDD' 2>&1
-        $code = $LASTEXITCODE
-        $result.installerOutput = ($output | Out-String).Trim()
-        $result.installerExitCode = $code
-        if ($code -notin @(0,1)) { throw "Device installer failed with exit code $code." }
-        $result.rebootRequired = $code -eq 1
+        Add-Type -Path (Join-Path $PSScriptRoot 'NativeDriver.cs')
+        $result.rebootRequired = [SidepadNativeDriver]::Install((Join-Path $destination 'MttVDD.inf'))
     } else {
         $result.alreadyInstalled = $true
+    }
+    if ($ExecutablePath) {
+        $result.phase = 'configuring-local-network'
+        & (Join-Path $PSScriptRoot 'configure-network.ps1') -ExecutablePath $ExecutablePath
+        $result.networkConfigured = $true
     }
     $result.phase = 'completed'
     $result.ok = $true

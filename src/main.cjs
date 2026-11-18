@@ -1,5 +1,5 @@
 const { app, BrowserWindow, ipcMain, desktopCapturer, screen, session, shell, clipboard, powerSaveBlocker } = require('electron');
-const { networkInterfaces, cpus } = require('node:os');
+const { networkInterfaces, cpus, uptime } = require('node:os');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { spawn } = require('node:child_process');
@@ -16,7 +16,9 @@ const smoke = process.argv.includes('--smoke-test') || codecProbe;
 const hardwarePreview = process.argv.includes('--hardware-preview');
 const bufferPreview = process.argv.includes('--buffer-preview');
 const preview = process.argv.includes('--preview') || hardwarePreview || bufferPreview;
-app.setPath('userData', path.join(projectRoot, '.runtime', ...(smoke ? ['smoke'] : bufferPreview ? ['buffer-preview'] : hardwarePreview ? ['hardware-preview'] : preview ? ['preview'] : [])));
+const runtimeRoot = app.isPackaged ? path.join(app.getPath('appData'), 'Sidepad') : path.join(projectRoot, '.runtime');
+const scriptRoot = app.isPackaged ? path.join(process.resourcesPath, 'scripts') : path.join(projectRoot, 'scripts');
+app.setPath('userData', path.join(runtimeRoot, ...(smoke ? ['smoke'] : bufferPreview ? ['buffer-preview'] : hardwarePreview ? ['hardware-preview'] : preview ? ['preview'] : [])));
 const hostFile = path.join(__dirname, 'host', 'index.html');
 const hostUrl = pathToFileURL(hostFile).href;
 let win, server, selectedId = null, blocker = null;
@@ -108,7 +110,16 @@ async function start() {
       const url = `http://${ip}:${server.port}/#${server.token}`;
       return { ip, url, qr: await QRCode.toDataURL(url, { width: 240, margin: 2, color: { dark: '#17232d', light: '#ffffff' } }) };
     }));
-    return { links, port: server.port, displays: await displays(), peerId: server.peerId, active: server.active, preview, hardwarePreview, bufferPreview };
+    let finishSetup = false;
+    let restartRequired = false;
+    if (app.isPackaged && !smoke) {
+      try {
+        const setup = JSON.parse((await readFile(path.join(runtimeRoot, 'setup-result.json'), 'utf8')).replace(/^\uFEFF/, ''));
+        restartRequired = setup.rebootRequired === true;
+        finishSetup = restartRequired && Date.parse(setup.rebootRequestedAt) < Date.now() - uptime() * 1000;
+      } catch { /* No pending setup. */ }
+    }
+    return { links, port: server.port, displays: await displays(), peerId: server.peerId, active: server.active, preview, hardwarePreview, bufferPreview, finishSetup, restartRequired };
   });
   handle('display:list', displays);
   handle('display:performance', performanceSnapshot);
@@ -117,7 +128,7 @@ async function start() {
     const text = JSON.stringify(report, null, 2);
     if (text.length > 50000) throw new Error('Diagnostic report too large');
     // Local, fixed destination; report contains no pairing token, IP, SDP or frames.
-    const target = path.join(projectRoot, '.runtime', bufferPreview ? 'buffer-preview-diagnostics.json' : 'hardware-preview-diagnostics.json');
+    const target = path.join(runtimeRoot, bufferPreview ? 'buffer-preview-diagnostics.json' : 'hardware-preview-diagnostics.json');
     diagnosticWrite = diagnosticWrite.catch(() => {}).then(async () => {
       await writeFile(`${target}.tmp`, text, 'utf8');
       await rename(`${target}.tmp`, target);
@@ -159,7 +170,9 @@ async function start() {
     const resultPath = path.join(resultDirectory, `${randomUUID()}.json`);
     try { await mkdir(resultDirectory, { recursive: true }); }
     catch (error) { driverProcess = null; throw error; }
-    driverProcess = spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'RemoteSigned', '-File', path.join(projectRoot, 'scripts', 'install-driver.ps1'), '-ResultPath', resultPath], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    const args = ['-NoProfile', '-ExecutionPolicy', 'RemoteSigned', '-File', path.join(scriptRoot, 'install-driver.ps1'), '-ResultPath', resultPath];
+    if (app.isPackaged) args.push('-DriverPath', path.join(process.resourcesPath, 'driver'), '-ExecutablePath', process.execPath);
+    driverProcess = spawn('powershell.exe', args, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
     let output = '';
     let settled = false;
     driverProcess.stdout.on('data', chunk => { output = (output + chunk.toString()).slice(-10000); });
@@ -170,6 +183,9 @@ async function start() {
       settled = true;
       let result;
       try { result = JSON.parse((await readFile(resultPath, 'utf8')).replace(/^\uFEFF/, '')); } catch { /* Failure details remain in process output. */ }
+      if (result && app.isPackaged) {
+        try { await writeFile(path.join(runtimeRoot, 'setup-result.json'), JSON.stringify(result, null, 2), 'utf8'); } catch (error) { console.error('Could not save setup result:', error.message); }
+      }
       driverProcess = null;
       const ok = code === 0 && result?.ok === true;
       const message = ok ? '가상 화면을 1920 × 1080 · 60 Hz 확장 모니터로 설정했습니다. 목록에서 선택해 화면 전송을 시작하세요.'

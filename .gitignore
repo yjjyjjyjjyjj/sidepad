@@ -3,6 +3,8 @@ node_modules/
 .electron-cache/
 .runtime/
 artifacts/
+dist/
+build/vendor/
 *.log
 .env
 .env.*

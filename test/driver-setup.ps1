@@ -6,7 +6,7 @@ function Get-SidepadDriverDevices {
     $script:calls += 'inspect'
     if ($script:scenario -eq 'ambiguous') { return @(@{Status='OK'}, @{Status='OK'}) }
     if ($script:scenario -eq 'disabled') { return @{Status='Error'} }
-    if ($script:scenario -in @('existing','bad-mode','config-failure')) { return @{Status='OK'} }
+    if ($script:scenario -in @('existing','existing-network','bad-mode','config-failure')) { return @{Status='OK'} }
     return @()
 }
 function Install-SidepadDriverPackage {
@@ -14,8 +14,10 @@ function Install-SidepadDriverPackage {
     if ($script:scenario -eq 'package-failure') { throw 'download failed' }
     return 'C:\test package'
 }
-function Register-SidepadDriver([string]$PackagePath, [string]$ResultPath) {
+function Register-SidepadDriver([string]$PackagePath, [string]$ResultPath, [string]$ExecutablePath) {
     $script:calls += 'register'
+    if ($script:scenario -in @('bundled','existing-network') -and $PackagePath -ne 'C:\bundled driver') { throw 'Bundled driver path was lost.' }
+    if ($script:scenario -eq 'existing-network' -and $ExecutablePath -ne 'C:\app\Sidepad.exe') { throw 'Installed executable path was lost.' }
     if ($script:scenario -eq 'cancel') { throw 'Administrator confirmation was cancelled.' }
     return @{ok=($script:scenario -ne 'registration-failure'); rebootRequired=($script:scenario -eq 'restart')}
 }
@@ -27,6 +29,8 @@ function Set-SidepadVirtualDisplay([string]$ResultPath) {
 $cases = @(
     @{name='new';ok=$true;phase='completed';calls='inspect,package,register,configure'},
     @{name='existing';ok=$true;phase='completed';calls='inspect,configure'},
+    @{name='bundled';ok=$true;phase='completed';calls='inspect,register,configure';driver='C:\bundled driver'},
+    @{name='existing-network';ok=$true;phase='completed';calls='inspect,register,configure';driver='C:\bundled driver';exe='C:\app\Sidepad.exe'},
     @{name='package-failure';ok=$false;phase='installing-package';calls='inspect,package'},
     @{name='registration-failure';ok=$false;phase='registering-driver';calls='inspect,package,register'},
     @{name='cancel';ok=$false;phase='registering-driver';calls='inspect,package,register'},
@@ -38,7 +42,7 @@ $cases = @(
 )
 foreach ($case in $cases) {
     $script:scenario = $case.name; $script:calls = @()
-    $result = Invoke-SidepadDriverSetup -WorkDirectory (Join-Path (Split-Path $PSScriptRoot -Parent) '.runtime\driver-setup-tests')
+    $result = Invoke-SidepadDriverSetup -WorkDirectory (Join-Path (Split-Path $PSScriptRoot -Parent) '.runtime\driver-setup-tests') -DriverPath $case.driver -ExecutablePath $case.exe
     if ($result.ok -ne $case.ok -or $result.phase -ne $case.phase -or ($script:calls -join ',') -ne $case.calls) {
         throw "Failed case $($case.name): $($result | ConvertTo-Json -Compress) / $script:calls"
     }

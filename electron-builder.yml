@@ -1,0 +1,53 @@
+appId: com.sidepad.desktop
+productName: Sidepad
+asar: true
+directories:
+  output: dist
+  buildResources: build
+files:
+  - src/**/*
+  - test/smoke.cjs
+  - test/benchmark.cjs
+  - test/codec-probe.cjs
+  - package.json
+extraResources:
+  - from: scripts
+    to: scripts
+    filter:
+      - install-driver.ps1
+      - driver-setup.ps1
+      - complete-driver-install.ps1
+      - configure-virtual-display.ps1
+      - configure-network.ps1
+      - uninstall-network.ps1
+      - NativeDriver.cs
+  - from: build/vendor/driver
+    to: driver
+  - from: THIRD_PARTY_NOTICES.md
+    to: THIRD_PARTY_NOTICES.md
+  - from: licenses
+    to: licenses
+win:
+  target: nsis
+  icon: src/assets/sidepad.ico
+  executableName: Sidepad
+  requestedExecutionLevel: asInvoker
+  signExecutable: false
+  artifactName: Sidepad-Setup-${version}-${arch}.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+  allowElevation: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Sidepad
+  runAfterFinish: true
+  deleteAppDataOnUninstall: false
+  installerIcon: src/assets/sidepad.ico
+  uninstallerIcon: src/assets/sidepad.ico
+  include: build/installer.nsh
+  installerLanguages:
+    - ko_KR
+    - en_US
+publish: null

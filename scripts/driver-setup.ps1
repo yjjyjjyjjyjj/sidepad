@@ -21,13 +21,14 @@ function Install-SidepadDriverPackage {
     if (-not ((Test-Path -LiteralPath $catalog) -and (Test-Path -LiteralPath $installer))) { throw 'The signed driver package was not found after installation.' }
     return $package
 }
-function Register-SidepadDriver([string]$PackagePath, [string]$ResultPath) {
+function Register-SidepadDriver([string]$PackagePath, [string]$ResultPath, [string]$ExecutablePath = '') {
     $helper = Join-Path $script:SidepadScriptDirectory 'complete-driver-install.ps1'
     # Paths are quoted arguments, never PowerShell source text.
-    foreach ($value in @($helper, $PackagePath, $ResultPath)) {
+    foreach ($value in @($helper, $PackagePath, $ResultPath, $ExecutablePath)) {
         if ($value.Contains('"')) { throw 'Invalid quote in installation path.' }
     }
     $arguments = '-NoProfile -ExecutionPolicy RemoteSigned -File "{0}" -PackagePath "{1}" -ResultPath "{2}"' -f $helper, $PackagePath, $ResultPath
+    if ($ExecutablePath) { $arguments += ' -ExecutablePath "{0}"' -f $ExecutablePath }
     try {
         $process = Start-Process -FilePath "$PSHOME\powershell.exe" -ArgumentList $arguments -Verb RunAs -WindowStyle Hidden -Wait -PassThru
     } catch {
@@ -45,26 +46,29 @@ function Set-SidepadVirtualDisplay([string]$ResultPath) {
     if (-not (Test-Path -LiteralPath $ResultPath)) { throw 'Display setup did not return a verification result.' }
     return (Get-Content -LiteralPath $ResultPath -Raw | ConvertFrom-Json)
 }
-function Invoke-SidepadDriverSetup([string]$WorkDirectory) {
+function Invoke-SidepadDriverSetup([string]$WorkDirectory, [string]$DriverPath = '', [string]$ExecutablePath = '') {
     $result = [ordered]@{ ok = $false; phase = 'checking-driver'; rebootRequired = $false; alreadyInstalled = $false }
     try {
         New-Item -ItemType Directory -Path $WorkDirectory -Force | Out-Null
         $devices = @(Get-SidepadDriverDevices)
         if ($devices.Count -gt 1) { throw 'Multiple Virtual Display Driver devices were found. Select a single device in Virtual Driver Control first.' }
-        if ($devices.Count -eq 0) {
+        if ($devices.Count -eq 1) {
+            $result.alreadyInstalled = $true
+            if ($devices[0].Status -ne 'OK') { throw 'The existing virtual display driver is not ready. Enable or repair it in Virtual Driver Control, then retry.' }
+        }
+        if ($devices.Count -eq 0 -or $ExecutablePath) {
             $result.phase = 'installing-package'
-            $package = Install-SidepadDriverPackage
+            $package = $DriverPath
+            if (-not $package -and $devices.Count -eq 0) { $package = Install-SidepadDriverPackage }
             $result.phase = 'registering-driver'
-            $registration = Register-SidepadDriver -PackagePath $package -ResultPath (Join-Path $WorkDirectory 'registration.json')
+            $registration = Register-SidepadDriver -PackagePath $package -ResultPath (Join-Path $WorkDirectory 'registration.json') -ExecutablePath $ExecutablePath
             if (-not $registration.ok) { throw 'Driver registration was not verified.' }
             $result.rebootRequired = [bool]$registration.rebootRequired
             if ($result.rebootRequired) {
+                $result.rebootRequestedAt = [DateTime]::UtcNow.ToString('o')
                 $result.phase = 'restart-required'
                 throw 'The driver requires a Windows restart. After restarting, click Install and set up driver again to finish 1920 x 1080 setup.'
             }
-        } else {
-            $result.alreadyInstalled = $true
-            if ($devices[0].Status -ne 'OK') { throw 'The existing virtual display driver is not ready. Enable or repair it in Virtual Driver Control, then retry.' }
         }
         $result.phase = 'configuring-display'
         $display = Set-SidepadVirtualDisplay -ResultPath (Join-Path $WorkDirectory 'display.json')

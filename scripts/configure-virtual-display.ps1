@@ -2,6 +2,8 @@ param([switch]$Apply, [int]$Width = 1920, [int]$Height = 1080, [int]$RefreshRate
     [ValidateRange(0,60)][int]$WaitSeconds = 0,
     [string]$ResultPath = (Join-Path (Split-Path $PSScriptRoot -Parent) '.runtime\display-configuration.json'))
 $ErrorActionPreference = 'Stop'
+# Use Windows' built-in modules even when launched from npm/PowerShell 7.
+$env:PSModulePath = "$PSHOME\Modules;$env:SystemRoot\System32\WindowsPowerShell\v1.0\Modules"
 # Uses Windows display configuration APIs, not UI automation.
 Add-Type -TypeDefinition @'
 using System;
