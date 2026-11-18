@@ -20,6 +20,8 @@
         <div class="button-row settings"><button id="settings" class="text-button">Windows에서 화면 배치하기 ↗</button><button id="add-virtual" class="text-button">새 가상 모니터 추가 ＋</button></div>
         <div class="mode-card"><label class="mode-toggle" for="low-latency"><input id="low-latency" type="checkbox" checked aria-describedby="mode-hint"><span>저지연 모드</span><span class="mode-badge">선명도 우선</span></label><p id="mode-hint">선택한 해상도와 프레임을 유지하며, 수신 버퍼 대기를 줄입니다.</p></div>
         <div class="options"><div><label for="quality">화질</label><select id="quality"><option value="balanced">균형 · 최대 1920 × 1200</option><option value="sharp">선명하게 · 최대 2560 × 1600</option><option value="light">가볍게 · 최대 1280 × 800</option></select></div><div><label for="fps">목표 프레임</label><select id="fps"><option value="30">30 fps</option><option value="60" selected>60 fps</option></select></div></div>
+        <label for="encoder-preference">영상 인코딩</label><select id="encoder-preference"><option value="hardware">하드웨어 우선 · 기기와 공통 규격 자동 선택</option><option value="compatibility">호환성 우선 · H.264</option></select>
+        <p id="encoder-status" class="encoder-status">연결 후 실제 인코더를 확인합니다.</p>
         <button id="start" class="primary" disabled>화면 전송 시작 <span>→</span></button><button id="stop" class="stop" hidden>화면 전송 중지</button>
         <div class="metrics"><span id="resolution">— 해상도</span><span id="framerate">— fps</span><span id="bitrate">— Mbps</span><span id="roundtrip" title="네트워크 왕복 시간입니다. 전체 화면 지연과 다릅니다.">왕복 — ms</span></div>
         <details id="diagnostics" class="diagnostics"><summary>지연·PC 사용량 진단</summary>
@@ -51,6 +53,7 @@
   </main>
   <script src="../shared/streaming.js"></script>
   <script src="../shared/diagnostics.js"></script>
+  <script src="../shared/codecs.js"></script>
   <script src="host.js"></script>
 </body>
 </html>

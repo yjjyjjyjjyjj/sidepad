@@ -2,10 +2,12 @@ const $ = id => document.getElementById(id);
 const api = window.sidepad;
 const { createStreamSettings, applySenderSettings } = window.SidepadStreaming;
 const diagnostics = window.SidepadDiagnostics;
+const codecTools = window.SidepadCodecs;
 let config, stream, peer, peerId, negotiation, candidates = [], signalQueue = Promise.resolve();
 let starting = false, offering = false, offerPending = false, statsTimer, previousStats;
 let activeSettings, senderTuning;
 let senderDiagnostics = null, senderUpdatedAt = 0, receiverDiagnostics = null, resourceStats = null;
+let codecNegotiation = null;
 
 function diagnosticReport() {
   const now = performance.now();
@@ -14,6 +16,7 @@ function diagnosticReport() {
     version: 1, recordedAt: new Date().toISOString(), settings: activeSettings || null,
     sender: senderFresh ? senderDiagnostics : null,
     receiver: diagnostics.freshReceiver(receiverDiagnostics, now), resources: senderFresh ? resourceStats : null,
+    codecNegotiation,
     notes: ['Recent interval averages; sendQueueMs is per packet, encode/buffer/decode are per frame.',
       'receiveProcessMs includes buffer/reassembly/decode. Do not sum overlapping metrics.',
       'Capture-to-display latency and GPU utilization are not measured. Encoder efficiency is a browser hint, not proof of NVENC.',
@@ -30,6 +33,12 @@ function renderDiagnostics() {
   $('diag-receive').textContent = ms(receiver?.receiveProcessMs);
   $('diag-cpu').textContent = Number.isFinite(resources?.cpuPercent) ? `${resources.cpuPercent.toFixed(1)}%` : '—';
   $('diag-encoder').textContent = `인코더: ${sender?.codec || '—'} / ${sender?.encoder || '확인 불가'} · ${diagnostics.efficiencyLabel(sender?.powerEfficient)}`;
+  if (sender?.codecParameters) $('diag-encoder').textContent += ` · ${sender.codecParameters}`;
+  const encoderState = codecTools.encoderStatus(sender);
+  $('encoder-status').dataset.state = encoderState;
+  $('encoder-status').textContent = encoderState === 'nvidia' ? `NVIDIA 하드웨어 인코딩 확인 · ${sender.codec}`
+    : encoderState === 'software' ? '소프트웨어 인코딩 중 · 기기 지원 규격과 협상 결과를 진단에서 확인하세요.'
+      : encoderState === 'efficient' ? `고효율 인코더 보고 · ${sender.encoder}` : '연결 후 실제 인코더를 확인합니다.';
   const bufferLabels = { minimum: '최소 버퍼 요청 적용', automatic: '자동 버퍼', unsupported: '버퍼 제어 미지원', failed: '버퍼 제어 적용 실패' };
   $('diag-decoder').textContent = receiver
     ? `디코더: ${receiver.decoder || '확인 불가'} · ${bufferLabels[receiver.bufferControl]} · 제외 ${receiver.droppedFrames ?? '—'} 프레임`
@@ -37,6 +46,10 @@ function renderDiagnostics() {
   const reasons = { none: '제한 보고 없음', cpu: 'CPU', bandwidth: '대역폭', other: '기타' };
   $('diag-limits').textContent = `브라우저 제한 사유: ${reasons[sender?.limitation] || '확인 불가'} · 영상 인코딩 가속 지원: ${resources?.videoEncodeFeature || '확인 불가'}`;
   $('diag-hint').textContent = diagnostics.diagnosis(sender, receiver, activeSettings?.fps || 60);
+  if (encoderState === 'software' && sender.codec === 'video/H264' && sender.codecParameters &&
+      codecTools.h264Profile({ sdpFmtpLine: sender.codecParameters }) === 'constrained-baseline') {
+    $('diag-hint').textContent = '협상된 H.264 Constrained Baseline은 Windows의 NVIDIA 인코더 경로에서 제외됩니다. 하드웨어 우선 모드는 공통으로 지원하는 다른 H.264 규격 또는 HEVC를 먼저 선택합니다.';
+  }
 }
 
 function message(text) { $('message').textContent = text; $('message').hidden = !text; }
@@ -47,6 +60,7 @@ function syncControls() {
   $('display').disabled = busy;
   $('quality').disabled = busy;
   $('fps').disabled = busy;
+  $('encoder-preference').disabled = busy;
   $('start').disabled = busy || !$('display').value;
 }
 function changeMode() {
@@ -83,7 +97,9 @@ function closePeer() {
   senderDiagnostics = null;
   receiverDiagnostics = null;
   resourceStats = null;
+  codecNegotiation = null;
   renderDiagnostics();
+  if (config?.hardwarePreview) api.recordDiagnostics(diagnosticReport()).catch(() => {});
   $('framerate').textContent = '— fps';
   $('bitrate').textContent = '— Mbps';
   $('roundtrip').textContent = '왕복 — ms';
@@ -113,7 +129,9 @@ async function offer() {
     for (const track of stream.getTracks()) pc.addTrack(track, stream);
     const transceiver = pc.getTransceivers()[0];
     const codecs = RTCRtpSender.getCapabilities('video')?.codecs;
-    if (codecs && transceiver?.setCodecPreferences) transceiver.setCodecPreferences([...codecs.filter(c => c.mimeType === 'video/H264'), ...codecs.filter(c => c.mimeType !== 'video/H264')]);
+    const codecPreferenceApplied = codecTools.applyCodecPreferences(transceiver, codecs, settings.encoderPreference);
+    codecNegotiation = { preference: settings.encoderPreference, senderPreferenceApplied: codecPreferenceApplied,
+      senderCodecs: codecTools.summarizeCodecs(codecs), receiverCodecs: null, receiverPreferenceApplied: null, answerCodecs: null };
     await pc.setLocalDescription(await pc.createOffer());
     if (peer !== pc || peerId !== target) return;
     const sender = pc.getSenders().find(item => item.track?.kind === 'video');
@@ -121,7 +139,7 @@ async function offer() {
     if (peer !== pc || peerId !== target) return;
     senderTuning = tuning;
     if (!tuning.applied) message('브라우저가 전송률 설정을 적용하지 못했습니다. 선택한 캡처 해상도와 프레임으로 전송합니다.');
-    await signal({ type: 'offer', sdp: pc.localDescription.sdp, lowLatency: settings.lowLatency });
+    await signal({ type: 'offer', sdp: pc.localDescription.sdp, lowLatency: settings.lowLatency, encoderPreference: settings.encoderPreference });
     if (peer !== pc) return;
     let statsBusy = false;
     statsTimer = setInterval(async () => {
@@ -143,6 +161,7 @@ async function offer() {
           previousStats = stat;
         }
         renderDiagnostics();
+        if (config?.hardwarePreview) await api.recordDiagnostics(diagnosticReport());
       } catch { /* Connection may be closed during polling. */ }
       finally { statsBusy = false; }
     }, 2000);
@@ -157,7 +176,7 @@ async function offer() {
 async function begin() {
   if (starting || stream) return;
   starting = true;
-  activeSettings = createStreamSettings({ lowLatency: $('low-latency').checked, quality: $('quality').value, fps: $('fps').value });
+  activeSettings = createStreamSettings({ lowLatency: $('low-latency').checked, quality: $('quality').value, fps: $('fps').value, encoderPreference: $('encoder-preference').value });
   syncControls();
   message('');
   try {
@@ -219,6 +238,9 @@ api.onSignal(({ peerId: from, signal }) => {
     if (!pc || pc !== peer || from !== peerId || signal.sessionId !== negotiation) return;
     if (signal.type === 'answer') {
       await pc.setRemoteDescription({ type: 'answer', sdp: signal.sdp });
+      if (pc !== peer || signal.sessionId !== negotiation) return;
+      codecNegotiation = { ...codecNegotiation, receiverCodecs: signal.codecCapabilities || null,
+        receiverPreferenceApplied: signal.codecPreferenceApplied ?? null, answerCodecs: codecTools.summarizeVideoSdp(signal.sdp) };
       for (const candidate of candidates.splice(0)) await pc.addIceCandidate(candidate);
     } else if (signal.type === 'candidate') {
       if (pc.remoteDescription) await pc.addIceCandidate(signal.candidate);
@@ -269,8 +291,8 @@ $('network').onchange = showNetwork;
 api.config().then(result => {
   config = result;
   if (result.preview) {
-    document.title = 'Sidepad · 저지연 미리보기 (3212)';
-    document.querySelector('.version').textContent = 'PREVIEW / 3212';
+    document.title = `Sidepad · ${result.hardwarePreview ? 'NVIDIA' : '저지연'} 미리보기 (${result.port})`;
+    document.querySelector('.version').textContent = `PREVIEW / ${result.port}`;
   }
   peerId = result.peerId;
   showDisplays(result.displays);

@@ -3,18 +3,22 @@ const { networkInterfaces, cpus } = require('node:os');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { spawn } = require('node:child_process');
+const { writeFile, rename } = require('node:fs/promises');
 const QRCode = require('qrcode');
 const { DisplayServer } = require('./server.cjs');
 
 const projectRoot = path.join(__dirname, '..');
-const smoke = process.argv.includes('--smoke-test');
-const preview = process.argv.includes('--preview');
-app.setPath('userData', path.join(projectRoot, '.runtime', ...(smoke ? ['smoke'] : preview ? ['preview'] : [])));
+const codecProbe = process.argv.includes('--codec-probe');
+const smoke = process.argv.includes('--smoke-test') || codecProbe;
+const hardwarePreview = process.argv.includes('--hardware-preview');
+const preview = process.argv.includes('--preview') || hardwarePreview;
+app.setPath('userData', path.join(projectRoot, '.runtime', ...(smoke ? ['smoke'] : hardwarePreview ? ['hardware-preview'] : preview ? ['preview'] : [])));
 const hostFile = path.join(__dirname, 'host', 'index.html');
 const hostUrl = pathToFileURL(hostFile).href;
 let win, server, selectedId = null, blocker = null;
 let driverProcess = null;
 let previousResources;
+let diagnosticWrite = Promise.resolve();
 
 function performanceSnapshot() {
   const now = performance.now();
@@ -88,7 +92,7 @@ function handle(name, fn) {
 async function start() {
   const ips = addresses();
   // Preview and smoke tests never acquire the live app's profile or listening port.
-  const port = smoke ? 0 : preview ? 3212 : Number(process.env.SIDEPAD_PORT || process.env.IPAD_DISPLAY_PORT || 3210);
+  const port = smoke ? 0 : hardwarePreview ? 3213 : preview ? 3212 : Number(process.env.SIDEPAD_PORT || process.env.IPAD_DISPLAY_PORT || 3210);
   server = await new DisplayServer({ port }).listen(ips);
   server.on('viewer', data => send('display:viewer', data));
   server.on('signal', data => send('display:signal', data));
@@ -100,10 +104,22 @@ async function start() {
       const url = `http://${ip}:${server.port}/#${server.token}`;
       return { ip, url, qr: await QRCode.toDataURL(url, { width: 240, margin: 2, color: { dark: '#17232d', light: '#ffffff' } }) };
     }));
-    return { links, port: server.port, displays: await displays(), peerId: server.peerId, active: server.active, preview };
+    return { links, port: server.port, displays: await displays(), peerId: server.peerId, active: server.active, preview, hardwarePreview };
   });
   handle('display:list', displays);
   handle('display:performance', performanceSnapshot);
+  handle('display:record-diagnostics', async report => {
+    if (!hardwarePreview || !report || typeof report !== 'object') return;
+    const text = JSON.stringify(report, null, 2);
+    if (text.length > 50000) throw new Error('Diagnostic report too large');
+    // Local, fixed destination; report contains no pairing token, IP, SDP or frames.
+    const target = path.join(projectRoot, '.runtime', 'hardware-preview-diagnostics.json');
+    diagnosticWrite = diagnosticWrite.catch(() => {}).then(async () => {
+      await writeFile(`${target}.tmp`, text, 'utf8');
+      await rename(`${target}.tmp`, target);
+    });
+    await diagnosticWrite;
+  });
   handle('display:copy-diagnostics', text => {
     if (typeof text !== 'string' || text.length > 50000) throw new Error('Invalid diagnostic report');
     clipboard.writeText(text);
@@ -179,7 +195,7 @@ async function start() {
   screen.on('display-metrics-changed', changed);
   await win.loadFile(hostFile);
   if (!smoke) showMainWindow();
-  if (smoke) await require('../test/smoke.cjs').run({ app, win, server, displays });
+  if (smoke) await require(codecProbe ? '../test/codec-probe.cjs' : '../test/smoke.cjs').run({ app, win, server, displays });
 }
 
 if (!app.requestSingleInstanceLock()) app.quit();

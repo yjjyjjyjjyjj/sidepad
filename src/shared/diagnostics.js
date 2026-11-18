@@ -34,7 +34,8 @@
       bitrateMbps: bytesPerSecond === null ? null : bytesPerSecond * 8 / 1000000,
       rttMs: number(pair?.currentRoundTripTime) === null ? null : pair.currentRoundTripTime * 1000,
       width: number(current.frameWidth), height: number(current.frameHeight),
-      codec: text(report.get(current.codecId)?.mimeType), encoder: text(current.encoderImplementation),
+      codec: text(report.get(current.codecId)?.mimeType), codecParameters: text(report.get(current.codecId)?.sdpFmtpLine),
+      encoder: text(current.encoderImplementation),
       powerEfficient: boolean(current.powerEfficientEncoder),
       limitation: ['none', 'cpu', 'bandwidth', 'other'].includes(current.qualityLimitationReason) ? current.qualityLimitationReason : null
     };

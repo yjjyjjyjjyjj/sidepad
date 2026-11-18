@@ -7,10 +7,12 @@
   "scripts": {
     "start": "electron .",
     "preview": "electron . --preview",
+    "preview:hardware": "electron . --hardware-preview",
     "test": "node --test test/*.test.cjs",
     "check": "node scripts/check.cjs",
     "smoke": "electron . --smoke-test",
-    "benchmark": "electron . --smoke-test --benchmark"
+    "benchmark": "electron . --smoke-test --benchmark",
+    "probe:codecs": "electron . --codec-probe"
   },
   "engines": {
     "node": ">=22.12.0"

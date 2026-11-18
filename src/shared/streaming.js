@@ -5,12 +5,13 @@
     light: { width: 1280, height: 800, bitrate: 3000000 }
   });
 
-  function createStreamSettings({ lowLatency = false, quality = 'balanced', fps = 30 } = {}) {
+  function createStreamSettings({ lowLatency = false, quality = 'balanced', fps = 30, encoderPreference = 'hardware' } = {}) {
     const low = lowLatency === true;
     const profile = profiles[quality] || profiles.balanced;
     const frameRate = Number(fps) === 60 ? 60 : 30;
     return Object.freeze({
       ...profile, lowLatency: low, fps: frameRate,
+      encoderPreference: encoderPreference === 'compatibility' ? 'compatibility' : 'hardware',
       bitrate: profile.bitrate * (frameRate === 60 ? 1.5 : 1),
       // Buffer tuning must not silently trade away the user's selected resolution.
       contentHint: 'detail',

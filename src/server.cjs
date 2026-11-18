@@ -5,12 +5,15 @@ const { randomBytes, timingSafeEqual } = require('node:crypto');
 const { EventEmitter } = require('node:events');
 const { WebSocketServer, WebSocket } = require('ws');
 const { validReceiverMetrics } = require('./shared/diagnostics.js');
+const { validCodecSummary } = require('./shared/codecs.js');
 
 function validSignal(value) {
   if (!value || typeof value !== 'object') return false;
   if (value.type === 'diagnostics') return typeof value.sessionId === 'string' && value.sessionId.length <= 64 &&
     Number.isSafeInteger(value.sequence) && value.sequence >= 0 && validReceiverMetrics(value.metrics);
-  if (value.type === 'answer') return typeof value.sdp === 'string' && value.sdp.length < 60000;
+  if (value.type === 'answer') return typeof value.sdp === 'string' && value.sdp.length < 60000 &&
+    (value.codecCapabilities === undefined || validCodecSummary(value.codecCapabilities)) &&
+    (value.codecPreferenceApplied === undefined || typeof value.codecPreferenceApplied === 'boolean');
   if (value.type === 'candidate') {
     const c = value.candidate;
     return c && typeof c.candidate === 'string' && c.candidate.length < 4096 &&
@@ -35,7 +38,8 @@ class DisplayServer extends EventEmitter {
       ['/viewer.js', ['text/javascript; charset=utf-8', readFileSync(path.join(publicDir, 'viewer.js'))]],
       ['/style.css', ['text/css; charset=utf-8', readFileSync(path.join(publicDir, 'style.css'))]],
       ['/streaming.js', ['text/javascript; charset=utf-8', readFileSync(path.join(__dirname, 'shared', 'streaming.js'))]],
-      ['/diagnostics.js', ['text/javascript; charset=utf-8', readFileSync(path.join(__dirname, 'shared', 'diagnostics.js'))]]
+      ['/diagnostics.js', ['text/javascript; charset=utf-8', readFileSync(path.join(__dirname, 'shared', 'diagnostics.js'))]],
+      ['/codecs.js', ['text/javascript; charset=utf-8', readFileSync(path.join(__dirname, 'shared', 'codecs.js'))]]
     ]);
     this.http = http.createServer((req, res) => {
       if (!this.allowedHosts.has(req.headers.host)) { res.writeHead(403).end(); return; }

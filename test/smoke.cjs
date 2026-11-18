@@ -74,6 +74,17 @@ async function run({ app, win, server, displays }) {
     viewer = new BrowserWindow({ show: false, width: 1194, height: 834, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false, partition: 'smoke-viewer' } });
     viewer.webContents.on('console-message', event => { if (['warning', 'error'].includes(event.level)) issues.push(event.message); });
     await viewer.loadURL(`http://127.0.0.1:${server.port}/#${server.token}`);
+    if (process.argv.includes('--device-codecs')) await viewer.webContents.executeJavaScript(`(() => {
+      const original = RTCRtpReceiver.getCapabilities.bind(RTCRtpReceiver);
+      RTCRtpReceiver.getCapabilities = kind => {
+        const caps = original(kind);
+        if (kind !== 'video') return caps;
+        const codecs = caps.codecs.filter(codec => codec.mimeType === 'video/H265' ||
+          (codec.mimeType === 'video/H264' && /profile-level-id=42e0/.test(codec.sdpFmtpLine)));
+        if (!codecs.some(codec => codec.mimeType === 'video/H265')) throw new Error('HEVC test decoder unavailable');
+        return { ...caps, codecs };
+      };
+    })()`);
     writeFileSync(path.join(artifacts, 'device-viewer.png'), (await viewer.webContents.capturePage()).toPNG());
     await viewer.webContents.executeJavaScript("document.getElementById('join').click()", true);
     await until(viewer, "document.getElementById('status').textContent === 'PC 연결됨'");
@@ -104,6 +115,14 @@ async function run({ app, win, server, displays }) {
     assert.ok(measurement.sender.sendQueueMs === null || measurement.sender.sendQueueMs >= 0);
     assert.ok(measurement.receiver.bufferMs >= 0);
     assert.ok(!JSON.stringify(measurement).includes(server.token));
+    assert.equal(measurement.codecNegotiation.senderPreferenceApplied, true);
+    assert.equal(measurement.codecNegotiation.receiverPreferenceApplied, true);
+    if (process.argv.includes('--device-codecs')) {
+      assert.match(measurement.sender.encoder, /NVIDIA/);
+      assert.equal(measurement.sender.powerEfficient, true);
+      assert.equal(measurement.sender.codec, 'video/H265');
+      assert.match(measurement.sender.encoder, /HEVC/);
+    }
     writeFileSync(path.join(artifacts, 'diagnostics.json'), JSON.stringify(measurement, null, 2));
     await win.webContents.executeJavaScript("document.getElementById('diagnostics').open = true");
     win.setContentSize(1150, 1500);

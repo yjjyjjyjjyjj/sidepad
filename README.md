@@ -20,6 +20,18 @@ npm.cmd start
 
 `npm.cmd run preview`로 **Sidepad · 저지연 미리보기 (3212)** 창을 엽니다. 기존 앱은 3210에서 계속 실행되고, 미리보기는 3212와 별도 사용자 프로필·연결 토큰을 사용합니다. 이전 창을 닫거나 새로고침할 필요가 없습니다. 연결할 기기에서 **미리보기 창의 새 QR 코드**를 사용하면 새 버전을 시험할 수 있습니다. 원래 연결은 원래 창의 QR 코드로 돌아갈 수 있습니다.
 
+`npm.cmd run preview:hardware`는 **Sidepad · NVIDIA 미리보기 (3213)**를 별도 프로필로 엽니다. 이미 실행 중인 3210/3212 인스턴스는 유지됩니다. 이 미리보기는 진단 결과를 로컬 `.runtime/hardware-preview-diagnostics.json`에 기록하여 실기기의 코덱 협상 결과를 확인할 수 있게 합니다. 연결 토큰·IP·전체 SDP·화면 영상은 기록하지 않으며, 이 파일은 Git에서 제외됩니다.
+
+### 하드웨어 인코딩 선택
+
+기본 **하드웨어 우선**은 송신·수신 양쪽의 `setCodecPreferences()`를 사용합니다. 실제 브라우저가 지원한다고 광고한 H.264 High/Main/Baseline을 먼저 고려하고, 그 공통 규격이 없으면 지원되는 HEVC(H.265)를 Constrained Baseline보다 우선합니다. 해상도와 프레임 설정은 바꾸지 않습니다. **호환성 우선**을 선택하면 기존처럼 H.264를 먼저 고려합니다.
+
+Windows Chromium의 Media Foundation 인코더는 NVIDIA에서 H.264 **Constrained Baseline**을 제외하는 제한이 있습니다. 이 규격만 우선 협상하면 GPU 가속이 활성화된 PC에서도 OpenH264로 전환될 수 있습니다. H.264를 모두 같은 우선순위로 취급하던 기존 코드를 프로파일별 우선순위로 바꾸고, 수신 측도 동일한 선호도를 적용했습니다. [Chromium 공식 구현](https://chromium.googlesource.com/chromium/src/+/main/media/gpu/windows/media_foundation_video_encode_accelerator_win.cc)
+
+이 기능은 지원되지 않는 프로파일을 SDP에 추가하거나 NVIDIA 드라이버 제한을 해제하지 않습니다. 공통 하드웨어 규격이 없거나 인코더 초기화가 실패하면 호환 가능한 소프트웨어 경로로 연결할 수 있으며, 실제 상태를 표시합니다. **NVIDIA 하드웨어 인코딩 확인**은 `getStats()`의 실제 인코더 이름에 NVIDIA가 보고된 경우에만 표시합니다. 가속 기능의 `enabled` 값만으로 성공을 표시하지 않습니다.
+
+진단 보고서의 `sender.codecParameters`는 선택된 프로파일·패킷화 규격이며, `codecNegotiation`은 송수신 지원 코덱, 선호도 적용 결과, 응답에서 협상한 코덱만 담습니다. 전체 SDP는 포함하지 않습니다.
+
 ### 저지연 모드
 
 - 화질·프레임 선택과 저지연 설정을 분리했습니다. 저지연 모드를 켜거나 꺼도 선택한 해상도와 프레임을 바꾸지 않습니다. 기본값은 균형 화질, 목표 60 fps이며, 현재 1920 × 1080 가상 화면을 축소하지 않고 캡처합니다.
@@ -94,7 +106,7 @@ Get-NetFirewallRule -DisplayName 'Sidepad LAN signaling','Sidepad LAN video' -Er
 ```text
 Windows 가상 디스플레이 (외부 IDD 드라이버)
   → Electron desktopCapturer / getDisplayMedia
-  → WebRTC 비디오 인코딩 (H.264 우선)
+  → WebRTC 비디오 인코딩 (공통 H.264 / HEVC 규격 협상)
   → 로컬 네트워크 P2P 전송
   → 기기 브라우저 <video playsinline>
 
@@ -114,6 +126,7 @@ Windows 앱 ↔ Node HTTP/WebSocket 서버 ↔ 기기 뷰어
 - `src/host/`: Windows 컨트롤 UI, 화면 캡처, WebRTC 송신.
 - `src/shared/streaming.js`: 전송 프로필, 브라우저 기능 감지, 최근 수신 버퍼 대기 시간 계산.
 - `src/shared/diagnostics.js`: 송수신 구간별 통계, 기기 보고값 검증, 오래된 통계 제거 및 진단 안내.
+- `src/shared/codecs.js`: H.264 프로파일 구분, 지원되는 코덱의 우선순위, 실제 인코더 판별 및 협상 진단.
 - `src/viewer/`: 브라우저 수신, 재연결, 전체 화면, 수신 통계.
 - `scripts/install-driver.ps1`: 공식 WinGet 패키지를 통한 별도 드라이버 설치.
 - `scripts/complete-driver-install.ps1`: 이미 설치된 공식 패키지에서 서명을 검증하고 드라이버 장치를 등록합니다. 관리자 PowerShell이 필요하며 인증서 저장소나 보안 정책은 변경하지 않습니다.
@@ -138,6 +151,7 @@ npm.cmd run check
 npm.cmd test
 npm.cmd run smoke
 npm.cmd run benchmark
+npm.cmd run probe:codecs
 ```
 
 `test`는 저지연 프로필, 지원되지 않는 브라우저 API의 대체 처리, 표준 모드 복귀, 통계 계산과 정적 파일 노출 범위, 토큰 인증, 동시 연결 제한, Origin 검사, 이전 연결의 메시지 차단, 전송 중지, 잘못된 메시지를 검증합니다.
@@ -159,6 +173,24 @@ npm.cmd run benchmark
 | 테스트 인스턴스 전체 CPU | 6.16% | 7.14% |
 
 이 결과에서 모드 간 지연 개선은 입증되지 않았습니다. 일반 바탕 화면을 순차 측정했을 때는 화면 내용과 전송량이 달라 수신 버퍼가 크게 달라졌습니다. 이미 하드웨어 인코딩을 사용하는 상태이므로 네이티브 송신 엔진 교체나 임의의 브라우저 내부 플래그 적용은 하지 않았습니다. 실제 기기를 새 미리보기 QR로 연결하고 같은 작업 중 진단을 수집해 판단할 수 있습니다.
+
+### 코덱 선택 재현 검증
+
+`probe:codecs`는 이 PC의 가상 모니터를 같은 해상도와 목표 60 fps로 보내며 수신 프로파일을 하나씩 제한합니다. Electron 45.3.4 / Chromium 156.0.8078.100 / RTX 3060 Ti에서 다음 선택을 재현했습니다. 수신 제한은 브라우저가 실제 지원하는 코덱의 부분집합만 사용합니다.
+
+| 수신 규격 | 실제 선택된 인코더 |
+| --- | --- |
+| H.264 Baseline `42001f` | NVIDIA H.264 Encoder MFT |
+| H.264 Constrained Baseline `42e01f` | OpenH264 |
+| H.264 Main `4d001f` | NVIDIA H.264 Encoder MFT |
+| H.264 High `640032` | NVIDIA H.264 Encoder MFT |
+| HEVC Main | NVIDIA HEVC Encoder MFT |
+
+`npm.cmd run smoke -- --device-codecs`는 수신 코덱을 H.264 Constrained Baseline + HEVC로 제한한 상황에서 새 우선순위가 HEVC를 선택하는지, 실제 NVIDIA 인코더와 1920 × 1080 수신을 확인합니다. 이 재현 테스트는 NVIDIA 및 HEVC 지원이 있는 환경용이며 실기기 검증을 대체하지 않습니다. 프로브 결과는 `artifacts/codec-probe.json`에 저장됩니다. 프로브·smoke·benchmark는 같은 테스트 프로필이므로 동시에 실행하지 않습니다.
+
+실기기 확인(2026-11-18): iPad Air 5 / iPadOS 26 이상 / Chrome은 H.264 `640c1f`(Constrained High), `42e01f`(Constrained Baseline), HEVC 등을 광고했습니다. PC의 H.264 High `640032`와 기기의 Constrained High는 서로 다른 프로파일이므로, 기존 H.264 우선 협상에서는 공통 `42e01f` 경로가 사용될 수 있습니다. 수정 후 실제 기기 응답은 HEVC를 먼저 선택했고, 송신 통계에 `MediaFoundationVideoEncodeAccelerator (NVIDIA HEVC Encoder MFT)`와 `powerEfficientEncoder=true`, 실제 송수신 해상도 1920 × 1080이 확인됐습니다. 사용자가 기기 영상 재생도 확인했습니다.
+
+실기기 샘플에서 인코딩은 약 5.5–5.8 ms, 송신은 약 57 fps였으며 수신 브라우저의 버퍼 제어는 여전히 미지원입니다. 하드웨어 전환 성공과 전체 화면 지연 개선은 별개입니다. 구간별 수치는 화면 내용·전송량·Wi-Fi 상태에 따라 바뀌므로 이전 한 번의 샘플과 비교해 전체 지연 감소를 단정하지 않습니다.
 
 검증 환경: 2026-11-18에 Virtual Display Driver 25.7.23 패키지의 드라이버를 설치하고, 가상 화면 `VDD by MTT`를 주 모니터 오른쪽에 1920 × 1080 / 60 Hz로 확장했습니다. 기존 두 물리 모니터의 배치와 144 Hz, 주 모니터 지정은 유지했습니다. `smoke`는 이 Full HD 화면을 선택했을 때 저지연 모드에서 수신 영상도 1920 × 1080인지 확인하며, 로컬 Chromium 간 재연결·중지·재시작·새로고침을 검증합니다. **별도 기기에서의 실제 Wi-Fi 지연과 장시간 안정성은 자동 테스트 범위에 포함되지 않습니다.**
 

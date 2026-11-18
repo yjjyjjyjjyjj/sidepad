@@ -1,6 +1,7 @@
 const $ = id => document.getElementById(id);
 const { applyReceiverLatency } = window.SidepadStreaming;
 const { receiverMetrics } = window.SidepadDiagnostics;
+const codecTools = window.SidepadCodecs;
 const token = location.hash.slice(1);
 // Keep the pairing secret out of request URLs, referrers, and server logs.
 let socket, peer, sessionId, signalQueue = Promise.resolve(), candidateQueue = [];
@@ -69,10 +70,16 @@ async function receiveOffer(signal) {
     }
   };
   await pc.setRemoteDescription({ type: 'offer', sdp: signal.sdp });
+  const receiverCodecs = RTCRtpReceiver.getCapabilities?.('video')?.codecs || [];
+  let codecPreferenceApplied = false;
+  for (const transceiver of pc.getTransceivers()) {
+    if (transceiver.receiver.track.kind === 'video') codecPreferenceApplied = codecTools.applyCodecPreferences(transceiver, receiverCodecs, signal.encoderPreference || 'compatibility');
+  }
   for (const item of candidateQueue.splice(0)) if (item.sessionId === id) await pc.addIceCandidate(item.candidate);
   await pc.setLocalDescription(await pc.createAnswer());
   if (peer !== pc) return;
-  send({ type: 'answer', sessionId: id, sdp: pc.localDescription.sdp });
+  send({ type: 'answer', sessionId: id, sdp: pc.localDescription.sdp,
+    codecCapabilities: codecTools.summarizeCodecs(receiverCodecs), codecPreferenceApplied });
   let statsBusy = false, sequence = 0;
   statsTimer = setInterval(async () => {
     if (statsBusy) return;
