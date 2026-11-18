@@ -1,0 +1,64 @@
+name: Windows release draft
+run-name: Sidepad ${{ github.ref_name }} · Windows x64
+
+on:
+  push:
+    tags: ['v*']
+
+concurrency:
+  group: windows-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-draft:
+    runs-on: windows-2022
+    timeout-minutes: 35
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '22.18.0'
+          package-manager-cache: false
+
+      - name: Check tag against package version
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          if ($env:GITHUB_REF_NAME -cne "v$version") {
+            throw "Tag $env:GITHUB_REF_NAME does not match package.json version $version."
+          }
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+      - run: npm run dist:win
+
+      - name: Attach verified installer to a new draft
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          $version = $tag.Substring(1)
+          $filename = "Sidepad-Setup-$version-x64.exe"
+          $installer = Join-Path dist $filename
+          $checksum = "$installer.sha256"
+          $digest = (Get-FileHash $installer -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ((Get-Content $checksum -Raw).TrimEnd() -cne "$digest  $filename") {
+            throw 'Installer checksum mismatch.'
+          }
+          Copy-Item -LiteralPath 'dist/Sidepad-설치안내.txt' -Destination 'dist/INSTALL.ko.txt'
+          $notes = Join-Path $env:RUNNER_TEMP 'sidepad-release.md'
+          @"
+          Windows 10/11 Intel·AMD 64비트 PC에서 **$filename**를 내려받아 실행하세요.
+          관리자 확인 후 가상 드라이버를 설치하고 1920 × 1080 / 60 Hz 확장 화면을 설정합니다.
+          기기는 같은 네트워크에서 PC에 표시된 QR 코드를 열어 연결합니다.
+
+          설치·제거 방법은 첨부된 **INSTALL.ko.txt**에서 확인할 수 있습니다.
+          "@ | Set-Content -LiteralPath $notes -Encoding utf8
+          $flags = @('--draft', '--verify-tag')
+          if ($tag -eq 'v0.2.0' -or $version.Contains('-')) { $flags += '--prerelease' }
+          gh release create $tag $installer $checksum 'dist/INSTALL.ko.txt' @flags --repo $env:GITHUB_REPOSITORY --title "Sidepad $tag" --notes-file $notes
