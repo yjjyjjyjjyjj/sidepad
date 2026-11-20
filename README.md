@@ -20,4 +20,4 @@ v0.2.0 사전 출시판 · Windows 10/11 · Intel/AMD 64비트(x64) · [모든 �
 - **QR로 페이지가 열리지 않으면** PC 앱에서 Wi-Fi 또는 유선 LAN 주소를 선택하고 새 QR을 스캔하세요. 게스트 Wi-Fi에서는 기기 간 연결이 차단될 수 있습니다.
 - **보낼 화면이 없으면** Sidepad에서 **새 가상 모니터 추가 → 드라이버 설치 및 설정**을 누르고, Windows 디스플레이 설정에서 가상 모니터가 **확장** 상태인지 확인하세요.
 
-[개발·빌드·배포](docs/DEVELOPMENT.md) · [성능 측정 및 검증 기록](docs/VALIDATION.md) · [서드파티 라이선스](THIRD_PARTY_NOTICES.md)
+[개발 인수인계](docs/HANDOFF.ko.md) · [개발·빌드·배포](docs/DEVELOPMENT.md) · [성능 측정 및 검증 기록](docs/VALIDATION.md) · [서드파티 라이선스](THIRD_PARTY_NOTICES.md)
